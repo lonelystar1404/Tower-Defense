@@ -14,6 +14,8 @@ import { HeroSelect, lastHero } from './ui/HeroSelect';
 import { Sound } from './audio/Sound';
 import { MapMenu } from './ui/MapMenu';
 import { initTooltips } from './ui/tooltip';
+import { PartyBar } from './ui/PartyBar';
+import { memberId } from './platform/member';
 import { isHeroUnlocked, loadProgress, markCleared } from './ui/progress';
 import { dailyChallenge, dailyScore, type DailyChallenge } from './game/daily';
 import { clearRun, DAILY_SLOT, loadRun, recordDaily, recordMapBest, saveRun, type SaveSlot } from './ui/saves';
@@ -32,6 +34,8 @@ const canvas = document.getElementById('game') as HTMLCanvasElement;
 let level = LEVELS[0];
 /** Hero used on hero maps; kept across restarts. */
 let heroId: HeroId = lastHero();
+/** Multiplayer: the party's heroes (one per player, P1 first); null for single-player. Kept across restarts. */
+let party: HeroId[] | null = null;
 let progress = loadProgress();
 /** Set once the current game's end (win or loss) has been handled, so it's recorded only once. */
 let endRecorded = false;
@@ -56,7 +60,21 @@ const view: ViewState & { element: ElementId; speed: number; paused: boolean; to
   paused: false,
   /** Last input on the map was touch (or pen), not a mouse. */
   touch: false,
+  /** The player using this screen. On a shared device, tapping a player's chip (or hero/tower) switches. */
+  player: 0,
 };
+
+/** The hero of the player using this screen. */
+const myHero = () => game.players[view.player]?.hero ?? null;
+
+/** Plays as `player` on a shared device (multiplayer); drops aiming and hero selection. */
+function setPlayer(player: number): void {
+  if (player === view.player || !game.players[player]) return;
+  view.player = player;
+  view.aiming = null;
+  view.heroSelected = false;
+  sound.play('click');
+}
 
 const renderer = new Renderer(canvas);
 const sound = new Sound();
@@ -120,13 +138,14 @@ const hud = new Hud({
   },
 });
 
+const partyBar = new PartyBar(document.getElementById('party-bar')!, setPlayer);
 const heroBar = new HeroBar(document.getElementById('hero-bar')!, {
   selectHero,
   useAbility,
 });
 
 function selectHero(): void {
-  if (!game.hero) return;
+  if (!myHero()) return;
   view.heroSelected = !view.heroSelected;
   view.selected = null;
   view.buildChoice = null;
@@ -134,14 +153,15 @@ function selectHero(): void {
 
 /** Self and global abilities fire at once; point abilities wait for a click on the map. */
 function useAbility(slot: number): void {
-  if (!game.hero) return;
-  if (!game.heroAbilityReady(slot)) {
+  const hero = myHero();
+  if (!hero) return;
+  if (!game.heroAbilityReady(slot, view.player)) {
     sound.play('denied');
     return;
   }
-  const def = game.hero.ability(slot);
+  const def = hero.ability(slot);
   if (def.target !== 'point') {
-    game.castHero(slot);
+    game.castHero(slot, 0, 0, view.player);
     return;
   }
   view.aiming = view.aiming === slot ? null : slot;
@@ -151,10 +171,14 @@ function useAbility(slot: number): void {
 
 /**
  * Picking a map for a new run: random-hero maps roll one of the unlocked heroes; other hero
- * maps go through hero select first.
+ * maps go through hero select first. Multiplayer maps pick a party of 2–5 (or one hero in
+ * Single mode).
  */
-function pickLevel(next: LevelDef): void {
+function pickLevel(next: LevelDef, mode: 'single' | 'party' = 'party'): void {
   menu.hide();
+  const unlocked = (id: HeroId) => isHeroUnlocked(HEROES[id], progress);
+  if (next.multiplayer) return heroSelect.show(next, unlocked, mode);
+  party = null;
   if (next.heroStart && next.heroMode === 'random') {
     const pool = HERO_IDS.filter((id) => isHeroUnlocked(HEROES[id], progress));
     heroId = pool[Math.floor(Math.random() * pool.length)] ?? 'vex';
@@ -164,10 +188,10 @@ function pickLevel(next: LevelDef): void {
 }
 
 /** A new run on `next` replaces its saved one, after asking. */
-function playLevel(next: LevelDef): void {
+function playLevel(next: LevelDef, mode?: 'single' | 'party'): void {
   const save = loadRun(next.id);
   if (save && !window.confirm(t('Start a new run on {map}? Your saved run (wave {n}) will be lost.', { map: t(next.name), n: save.snapshot.wavesStarted + 1 }))) return;
-  pickLevel(next);
+  pickLevel(next, mode);
 }
 
 function resumeLevel(next: LevelDef): void {
@@ -199,8 +223,12 @@ const menu = new MapMenu(document.getElementById('menu')!, {
 });
 const heroSelect = new HeroSelect(
   document.getElementById('hero-select')!,
-  (next, hero) => {
-    heroId = hero;
+  (next, heroes) => {
+    if (heroes.length > 1) party = heroes;
+    else {
+      heroId = heroes[0];
+      party = null;
+    }
     startLevel(next);
   },
   () => {
@@ -214,7 +242,10 @@ const heroSelect = new HeroSelect(
  * state. A fresh run replaces whatever was saved in its slot.
  */
 function startLevel(next: LevelDef, daily: DailyChallenge | null = null): void {
-  const fresh = daily ? new Game(next, Math.random, daily.hero, { conditionsSeed: daily.seed }) : new Game(next, Math.random, heroId);
+  // Multiplayer on one device: every player here shares this device's MemberId as P1; the
+  // others are local guests until online rooms give each their own.
+  const options = party && next.multiplayer ? { party: { heroes: party, memberIds: [memberId()] } } : {};
+  const fresh = daily ? new Game(next, Math.random, daily.hero, { conditionsSeed: daily.seed }) : new Game(next, Math.random, heroId, options);
   const slot = daily ? DAILY_SLOT : next.id;
   clearRun(slot);
   resume(fresh, { slot, daily });
@@ -225,6 +256,8 @@ function resume(next: Game, where: typeof run): void {
   game = next;
   level = next.level;
   run = where;
+  view.player = 0;
+  party = next.players.length > 1 ? next.heroes.map((h) => h.def.id) : party && next.level.multiplayer ? party : null;
   savedWave = next.wavesStarted;
   endRecorded = false;
   hud.setDaily(where.daily);
@@ -306,12 +339,12 @@ function chooseElement(element: ElementId): void {
 }
 
 function upgradeSelected(): void {
-  if (view.selected && !game.upgrade(view.selected)) sound.play('denied');
+  if (view.selected && !game.upgrade(view.selected, view.player)) sound.play('denied');
 }
 
 function sellSelected(): void {
   if (!view.selected) return;
-  game.sell(view.selected);
+  if (!game.sell(view.selected, view.player)) sound.play('denied');
   view.selected = null;
 }
 
@@ -348,8 +381,8 @@ function secondaryAction(p: { x: number; y: number }): void {
     cancelTool();
     return;
   }
-  if (game.hero) {
-    game.moveHero(p.x, p.y);
+  if (myHero()) {
+    game.moveHero(p.x, p.y, view.player);
     return;
   }
   view.selected = null;
@@ -413,24 +446,29 @@ canvas.addEventListener('click', (ev) => {
       view.pointer = p;
       return;
     }
-    if (game.castHero(view.aiming, p.x, p.y)) view.aiming = null;
+    if (game.castHero(view.aiming, p.x, p.y, view.player)) view.aiming = null;
     else {
       sound.play('denied');
       if (touch) view.pointer = p;
     }
     return;
   }
-  const hero = game.hero;
-  if (hero && !view.buildChoice && Math.hypot(p.x - hero.x, p.y - hero.y) < 0.55) {
+  // Tapping a hero selects it (on a shared device, another player's hero switches to them).
+  const tapped = view.buildChoice ? undefined : game.heroes.find((h) => Math.hypot(p.x - h.x, p.y - h.y) < 0.55);
+  if (tapped) {
+    if (tapped.player !== view.player) setPlayer(tapped.player);
     selectHero();
     return;
   }
+  const hero = myHero();
   if (hero && view.heroSelected && !view.buildChoice && !game.towerAt(col, row)) {
-    game.moveHero(p.x, p.y);
+    game.moveHero(p.x, p.y, view.player);
     return;
   }
   const existing = game.towerAt(col, row);
   if (existing) {
+    // On a shared device, selecting another player's tower plays as its owner (their gold).
+    if (existing.owner !== view.player) setPlayer(existing.owner);
     view.selected = existing;
     view.buildChoice = null;
     view.heroSelected = false;
@@ -442,7 +480,7 @@ canvas.addEventListener('click', (ev) => {
       view.pointer = p;
       return;
     }
-    const built: Tower | null = game.build(col, row, view.buildChoice);
+    const built: Tower | null = game.build(col, row, view.buildChoice, view.player);
     if (!built) {
       sound.play('denied');
       if (touch) view.hover = { col, row };
@@ -472,6 +510,10 @@ window.addEventListener('keydown', (ev) => {
     toggleMute();
   } else if (ev.key === 'h' || ev.key === 'H') {
     selectHero();
+  } else if (ev.key === 'Tab' && game.players.length > 1) {
+    // Multiplayer on one device: next player
+    ev.preventDefault();
+    setPlayer((view.player + 1) % game.players.length);
   } else if ((ABILITY_KEYS as readonly string[]).includes(ev.key.toUpperCase())) {
     useAbility((ABILITY_KEYS as readonly string[]).indexOf(ev.key.toUpperCase()));
   } else if (ev.key === 'p' || ev.key === 'P') {
@@ -515,7 +557,7 @@ function frame(now: number): void {
           lives: game.lives,
           waves: game.score.waves / SCORE.wave,
           won,
-          hero: game.hero?.def.callsign,
+          hero: game.heroes.map((h) => h.def.callsign).join(' + ') || undefined,
         }),
       );
     }
@@ -526,7 +568,8 @@ function frame(now: number): void {
   for (const id of game.drainSounds()) sound.play(id);
   renderer.draw(game, view);
   hud.update(game, view);
-  heroBar.update(game, view.aiming, view.heroSelected);
+  heroBar.update(game, view.aiming, view.heroSelected, view.player);
+  partyBar.update(game, view.player);
   requestAnimationFrame(frame);
 }
 menu.show(progress, false);

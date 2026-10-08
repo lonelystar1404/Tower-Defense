@@ -602,7 +602,8 @@ describe('Balance: Neon District', { timeout: 60_000 }, () => {
 
   it('every hero map is beatable with every hero', { timeout: 600_000 }, () => {
     // One seed per hero and map to keep the suite quick (the random-hero maps can hand out any of them).
-    const heroMaps = LEVELS.filter((l) => l.heroStart);
+    // Multiplayer maps (Map 8 on) are built so one hero can't win them; see tests/party.test.ts.
+    const heroMaps = LEVELS.filter((l) => l.heroStart && !l.multiplayer);
     expect(heroMaps.map((l) => l.id)).toEqual(['chrome-canyon', 'orbital-spire', 'zero-point', 'blackout-sector', 'core-nexus']);
     for (const map of heroMaps) {
       for (const hero of HERO_IDS) {
@@ -615,7 +616,7 @@ describe('Balance: Neon District', { timeout: 60_000 }, () => {
   });
 
   it('every other map is beatable by the mixed build, lockdown on', () => {
-    for (const map of LEVELS.slice(1)) {
+    for (const map of LEVELS.slice(1).filter((l) => !l.multiplayer)) {
       for (let seed = 1; seed <= 3; seed++) {
         const game = playBot(map, seed, MIXED_PLAN);
         expect(game.phase, `${map.id} seed ${seed}: fell on wave ${game.wavesStarted}`).toBe('won');

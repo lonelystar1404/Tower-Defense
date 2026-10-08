@@ -28,7 +28,9 @@ export function dailyChallenge(now = new Date()): DailyChallenge {
   const date = now.toISOString().slice(0, 10);
   const seed = hash(`neon-wardens:${date}`);
   const rng = seededRng(seed);
-  const level = LEVELS[Math.floor(rng() * LEVELS.length)];
+  // One hero, so never a multiplayer map (the first seven keep their place, so past days are unchanged).
+  const pool = LEVELS.filter((l) => !l.multiplayer);
+  const level = pool[Math.floor(rng() * pool.length)];
   const hero = HERO_IDS[Math.floor(rng() * HERO_IDS.length)];
   return { date, seed, level, hero };
 }

@@ -11,6 +11,8 @@ import type { Game } from '../game/Game';
 import { drawTower } from '../render/sprites';
 import type { TargetPriority } from '../systems/targeting';
 import { getLang, t } from '../i18n';
+import { PLAYER_COLORS } from '../data/party';
+import { playerLabel } from './PartyBar';
 
 /** What the panel describes: a tower about to be built, or one already on the map. */
 export type InfoSubject =
@@ -39,6 +41,8 @@ export const PRIORITY_LABELS: Record<TargetPriority, string> = {
  */
 export class InfoPanel {
   private key = '';
+  /** The player using this screen: their gold decides what's affordable, their hero is shown. */
+  private player = 0;
 
   constructor(private readonly root: HTMLElement, actions: InfoActions) {
     root.addEventListener('click', (ev) => {
@@ -50,12 +54,17 @@ export class InfoPanel {
     });
   }
 
+  private gold(game: Game): number {
+    return game.players[this.player]?.gold ?? game.gold;
+  }
+
   /** Forces a redraw (after a language change). */
   reset(): void {
     this.key = '';
   }
 
-  update(game: Game, subject: InfoSubject): void {
+  update(game: Game, subject: InfoSubject, player = 0): void {
+    this.player = player;
     // On phones the panel floats over the build menu, only for a placed tower or the hero.
     this.root.dataset.kind = subject?.kind ?? 'none';
     const key = `${getLang()}:${this.keyFor(game, subject)}`;
@@ -85,21 +94,21 @@ export class InfoPanel {
   private keyFor(game: Game, subject: InfoSubject): string {
     if (!subject) return 'none';
     if (subject.kind === 'hero') {
-      const h = game.hero;
+      const h = game.players[this.player]?.hero;
       return h ? `hero:${h.def.id}:${h.level}:${h.kills}:${h.cooldowns.map((c) => Math.ceil(c)).join(',')}:${h.jammed}:${game.battlefield.id}` : 'none';
     }
     if (subject.kind === 'build') {
       const { weapon, element } = subject.option;
-      return `build:${weapon}:${element}:${Math.max(0, towerCost(subject.option) - game.gold)}:${game.isLocked(subject.option)}:${game.battlefield.id}`;
+      return `build:${weapon}:${element}:${Math.max(0, towerCost(subject.option) - this.gold(game))}:${game.isLocked(subject.option)}:${game.battlefield.id}`;
     }
     const t = subject.tower;
     const next = game.nextUpgradeCost(t);
-    return `placed:${t.id}:${t.level}:${t.priority}:${game.sellValue(t)}:${next === null ? 'max' : Math.max(0, next - game.gold)}:${game.isLocked(t)}:${game.battlefield.id}`;
+    return `placed:${t.id}:${t.level}:${t.priority}:${game.sellValue(t)}:${next === null ? 'max' : Math.max(0, next - this.gold(game))}:${t.owner}:${this.player}:${game.isLocked(t)}:${game.battlefield.id}`;
   }
 
   /** The hero: who they are, level and XP, attack, and each ability's state. */
   private renderHero(game: Game): string {
-    const hero = game.hero;
+    const hero = game.players[this.player]?.hero;
     if (!hero) return '';
     const def = hero.def;
     const next = hero.killsForNextLevel;
@@ -206,10 +215,10 @@ export class InfoPanel {
           : game.isLocked(option)
             ? `<button class="upgrade" disabled title="${t('Locked this wave')}">🔒 ${t('Upgrade encrypted this wave')}</button>
                <p class="info-hint warn">${t("This combo is locked this wave: the tower keeps firing but can't be upgraded until a lockdown frees it.")}</p>`
-            : `<button class="upgrade" data-action="upgrade" title="${t('Upgrade')} [U]" ${game.gold < upgrade ? 'disabled' : ''}>
+            : `<button class="upgrade" data-action="upgrade" title="${t('Upgrade')} [U]" ${this.gold(game) < upgrade ? 'disabled' : ''}>
                ${t('Upgrade to Lv {n}', { n: level + 1 })} · <b>${upgrade}</b>
              </button>
-             ${game.gold < upgrade ? `<p class="info-hint warn">${t('Need {n} more gold.', { n: upgrade - game.gold })}</p>` : ''}`;
+             ${this.gold(game) < upgrade ? `<p class="info-hint warn">${t('Need {n} more gold.', { n: upgrade - this.gold(game) })}</p>` : ''}`;
       actions = `
         ${upgradeButton}
         <div class="row">
@@ -217,7 +226,7 @@ export class InfoPanel {
           <button data-action="sell" class="danger" title="${t('Sell')} [S]">${t('Sell')} +${game.sellValue(tower)}</button>
         </div>`;
     } else {
-      const short = cost - game.gold;
+      const short = cost - this.gold(game);
       actions = game.isLocked(option)
         ? `<p class="info-hint warn">🔒 ${t("Encrypted this wave: can't be built. The lockdown changes after each wave.")}</p>`
         : short > 0
@@ -234,6 +243,7 @@ export class InfoPanel {
           <div class="pips">${Array.from({ length: MAX_TOWER_LEVEL }, (_, i) => `<span class="${i < level ? 'on' : ''}"></span>`).join('')}</div>
           <div class="info-sub">${el.icon} ${t(el.name)} · ${t(w.name)}</div>
           <div class="info-cost">${tower ? t('Lv {level} · spent {spent}', { level: tower.level, spent: tower.spent }) : `${t('Cost')} <b>${cost}</b>`}</div>
+          ${tower && game.players.length > 1 ? `<div class="info-owner" style="color:${PLAYER_COLORS[tower.owner]}">● ${t('Owned by {name}', { name: playerLabel(game, tower.owner) })}</div>` : ''}
         </div>
       </div>
       <div class="info-actions" style="--el-color:${el.color}">${actions}</div>

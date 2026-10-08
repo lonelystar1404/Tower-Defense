@@ -50,6 +50,8 @@ export interface HudView {
   aiming: number | null;
   /** The player is using touch: hints say "tap" and describe the tap-twice confirm. */
   touch: boolean;
+  /** The player using this screen (their gold and hero). 0 in single-player. */
+  player: number;
 }
 
 function $<T extends HTMLElement>(id: string): T {
@@ -199,7 +201,8 @@ export class Hud {
   update(game: Game, view: HudView): void {
     this.setText($('level-name'), this.daily ? t('Daily {date} · {map}', { date: this.daily.date, map: t(game.level.name) }) : t(game.level.name));
     this.setText(this.lives, String(game.lives));
-    this.setText(this.gold, String(game.gold));
+    const me = game.players[view.player] ?? game.players[0];
+    this.setText(this.gold, String(me.gold));
     this.setText(this.wave, `${game.wavesStarted}/${game.totalWaves}`);
 
     this.startWave.disabled = game.phase !== 'build';
@@ -249,13 +252,13 @@ export class Hud {
       el.classList.toggle('selected', view.buildChoice?.weapon === weapon);
       el.classList.toggle('locked', locked);
       el.setAttribute('aria-disabled', String(locked));
-      el.classList.toggle('unaffordable', game.gold < towerCost(option));
+      el.classList.toggle('unaffordable', me.gold < towerCost(option));
       this.setText(cost, locked ? '🔒' : String(towerCost(option)));
     }
 
     this.updateBattlefield(game);
     this.updateNextWave(game);
-    this.info.update(game, this.infoSubject(view));
+    this.info.update(game, this.infoSubject(view), view.player);
     this.updateOverlay(game);
   }
 
@@ -279,7 +282,7 @@ export class Hud {
     this.setText(
       this.prepTitle,
       game.wavesStarted === 0
-        ? game.hero && game.level.heroMode === 'random'
+        ? game.hero && game.level.heroMode === 'random' && game.players.length === 1
           ? `${t('Get ready')} · ${t('Your hero this time: {name}', { name: game.hero.def.callsign })}`
           : t('Get ready')
         : t('Wave {n} cleared', { n: game.wavesStarted }) + (game.lastWaveBonus ? ` · ${t('+{n} gold', { n: game.lastWaveBonus })}` : ''),
@@ -302,13 +305,14 @@ export class Hud {
    */
   private updateToolBar(game: Game, view: HudView): void {
     let hint = '';
-    if (view.aiming !== null && game.hero) {
-      const name = t(game.hero.ability(view.aiming).name);
+    const hero = game.players[view.player]?.hero;
+    if (view.aiming !== null && hero) {
+      const name = t(hero.ability(view.aiming).name);
       hint = view.touch ? t('{ability}: tap to aim, tap the same spot again to fire', { ability: name }) : t('{ability}: click to fire', { ability: name });
     } else if (view.buildChoice) {
       hint = view.touch ? t('Tap a pad to preview, tap it again to build') : t('Click a pad to build · Shift-click to build several');
-    } else if (view.heroSelected && game.hero && view.touch) {
-      hint = t('Tap the map to move {name}', { name: game.hero.def.callsign });
+    } else if (view.heroSelected && hero && view.touch) {
+      hint = t('Tap the map to move {name}', { name: hero.def.callsign });
     }
     this.toolBar.hidden = !hint || game.over;
     $('cancel-tool').hidden = view.aiming === null && !view.buildChoice;
@@ -485,7 +489,7 @@ function statsBreakdown(game: Game): string {
       <h3>${t('Kills')}</h3>
       <ul>
         <li>${t('Towers')}<span>${kills.towers} · ${pct(kills.towers)}</span></li>
-        ${game.hero ? `<li>${game.hero.def.callsign}<span>${kills.hero} · ${pct(kills.hero)}</span></li>` : ''}
+        ${game.hero ? `<li>${game.players.length > 1 ? t('Heroes') : game.hero.def.callsign}<span>${kills.hero} · ${pct(kills.hero)}</span></li>` : ''}
         <li>${t('Burn & poison')}<span>${kills.status} · ${pct(kills.status)}</span></li>
       </ul>
     </div>

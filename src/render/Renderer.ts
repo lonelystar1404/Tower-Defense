@@ -11,6 +11,7 @@ import type { ObstacleDef } from '../data/levels';
 import { seededRng } from '../systems/rng';
 import { drawHeroSprite, drawTower, flame, glowDot, neonStroke, roundRect } from './sprites';
 import { canvasFont, THEME } from './theme';
+import { PLAYER_COLORS } from '../data/party';
 import { t as tr } from '../i18n';
 
 /** Pixels per tile. Game logic is in tile units; only the renderer knows about pixels. */
@@ -35,6 +36,8 @@ export interface ViewState {
   heroSelected: boolean;
   /** Slot (0–3) of a point ability waiting for a click on the map. */
   aiming: number | null;
+  /** The player using this screen (their hero, gold, and towers). 0 in single-player. */
+  player: number;
 }
 
 export class Renderer {
@@ -75,6 +78,13 @@ export class Renderer {
         neonStroke(ctx, '#00f0ff', 1.5);
       }
       drawTower(ctx, t.x * TILE, t.y * TILE, TILE, t.element, t.weapon, t.angle, t.recoil, t.level);
+      // Multiplayer: a dot in the owner's color at the tower's corner.
+      if (game.players.length > 1) {
+        ctx.beginPath();
+        ctx.arc(t.col * TILE + 5, (t.row + 1) * TILE - 5, 2.8, 0, Math.PI * 2);
+        ctx.fillStyle = PLAYER_COLORS[t.owner] ?? '#fff';
+        ctx.fill();
+      }
       if (t.disabledTime > 0) this.drawOffline(t, game.time);
       else if (game.isLocked(t)) {
         // Encrypted this wave: no upgrades
@@ -92,7 +102,10 @@ export class Renderer {
     for (const p of game.projectiles) if (p.homing) this.drawProjectile(p);
     for (const e of game.enemies) if (e.movement === 'air') this.drawEnemy(e, game.time);
     for (const p of game.projectiles) if (!p.homing) this.drawShell(p);
-    if (game.hero) this.drawHero(game.hero, game.time, view.heroSelected);
+    const party = game.players.length > 1;
+    for (const hero of game.heroes) {
+      this.drawHero(hero, game.time, view.heroSelected && hero.player === view.player, party ? hero.player : null);
+    }
     this.drawStrikes(game);
     this.drawEffects(game);
     this.drawHover(game, view);
@@ -263,7 +276,8 @@ export class Renderer {
   }
 
   /** The hero: its figure, a level badge, an XP ring, and (when selected) its attack range. */
-  private drawHero(hero: Hero, time: number, selected: boolean): void {
+  /** `tag`: player index to label the hero with (P1–P5) in multiplayer, null in single-player. */
+  private drawHero(hero: Hero, time: number, selected: boolean, tag: number | null = null): void {
     const ctx = this.ctx;
     const x = hero.x * TILE;
     const y = hero.y * TILE;
@@ -354,14 +368,20 @@ export class Renderer {
     ctx.stroke();
     ctx.fillStyle = color;
     ctx.fillText(hero.level >= MAX_HERO_LEVEL ? tr('MAX') : String(hero.level), x, y - r - 7.5);
+    // Multiplayer: whose hero it is, under it.
+    if (tag !== null) {
+      ctx.font = canvasFont('display', 8, '800');
+      ctx.fillStyle = PLAYER_COLORS[tag] ?? '#fff';
+      ctx.fillText(`P${tag + 1}`, x, y + r + 11);
+    }
     ctx.restore();
   }
 
   /** Echo's drones with a ring showing time left; marked enemies; overclocked towers. */
   private drawSummons(game: Game): void {
     const ctx = this.ctx;
-    const color = game.hero?.def.color ?? '#5dffb1';
     for (const d of game.summons) {
+      const color = d.owner.def.color;
       const x = d.x * TILE;
       const y = d.y * TILE;
       ctx.save();
@@ -405,7 +425,7 @@ export class Renderer {
       ctx.arc(t.x * TILE, t.y * TILE, TILE * 0.55, 0, Math.PI * 2);
       ctx.setLineDash([3, 3]);
       ctx.lineDashOffset = -game.time * 30;
-      ctx.strokeStyle = color;
+      ctx.strokeStyle = '#5dffb1';
       ctx.lineWidth = 2;
       ctx.stroke();
       ctx.restore();
@@ -414,7 +434,7 @@ export class Renderer {
 
   /** While aiming a hero ability: its reach around the hero and its area (or line) at the pointer. */
   private drawAim(game: Game, view: ViewState): void {
-    const hero = game.hero;
+    const hero = game.players[view.player]?.hero;
     if (!hero || view.aiming === null) return;
     const def = hero.ability(view.aiming);
     const ctx = this.ctx;
@@ -539,8 +559,8 @@ export class Renderer {
     const ctx = this.ctx;
     if (e.burrowed) return this.drawBurrowed(e, time);
     ctx.save();
-    if (e.def.ability?.kind === 'fortify') {
-      // Warden aura: a faint ring showing who it protects.
+    if (e.def.ability?.kind === 'fortify' || e.def.ability?.kind === 'surge') {
+      // Warden / Surger aura: a faint ring showing who it boosts.
       ctx.beginPath();
       ctx.arc(e.x * TILE, e.y * TILE, e.def.ability.radius * TILE, 0, Math.PI * 2);
       ctx.fillStyle = hexAlpha(e.def.color, 0.04);
@@ -710,6 +730,13 @@ export class Renderer {
     }
 
     // Hull
+    if (e.def.id === 'surger') {
+      // Engine glow at the back, pulsing fast
+      ctx.beginPath();
+      ctx.arc(-r * 0.45, 0, r * (0.28 + Math.sin(time * 14) * 0.06), 0, Math.PI * 2);
+      ctx.fillStyle = hexAlpha(color, 0.85);
+      ctx.fill();
+    }
     if (e.def.id === 'disruptor') {
       // Tesla prongs around a round core, turning
       ctx.strokeStyle = color;
@@ -744,6 +771,14 @@ export class Renderer {
     }
     if (e.def.id === 'brute' || e.def.id === 'warden') {
       roundRect(ctx, -r, -r, r * 2, r * 2, r * 0.35);
+    } else if (e.def.id === 'surger') {
+      // Swept arrowhead
+      ctx.beginPath();
+      ctx.moveTo(r * 1.3, 0);
+      ctx.lineTo(-r * 0.9, r * 0.95);
+      ctx.lineTo(-r * 0.4, 0);
+      ctx.lineTo(-r * 0.9, -r * 0.95);
+      ctx.closePath();
     } else if (e.def.id === 'phaser') {
       // Diamond that stretches when it's about to blink
       const charge = e.def.ability?.kind === 'blink' ? 1 - Math.max(0, e.abilityTimer) / e.def.ability.interval : 0;

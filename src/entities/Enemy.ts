@@ -38,6 +38,8 @@ export class Enemy implements Targetable {
   abilityTimer = 0;
   /** Marked (Leila): takes `markAmp` more damage from everything while `markTime` > 0. */
   markTime = 0;
+  /** Player whose tower or hero hit it last: gets the gold if burn or poison finishes it. */
+  lastHitBy = 0;
   markAmp = 0;
   /** Extra damage taken from standing near Vex (Spotter Uplink); recomputed every tick. */
   auraAmp = 0;
@@ -45,6 +47,8 @@ export class Enemy implements Targetable {
   element: ElementId | undefined;
   /** Extra armor from a nearby Warden (recomputed every tick). */
   bonusArmor = 0;
+  /** Speed boost from a nearby Surger, recomputed every tick (1 = none). */
+  surgeMult = 1;
   /** Burrowers: seconds left underground (untargetable and immune while > 0). */
   burrowTime = 0;
   /** Bosses: how many phases have started so far, and the speed boost from enraging. */
@@ -103,7 +107,7 @@ export class Enemy implements Targetable {
 
   /** Current speed in tiles per second, after slows and stops. */
   get speed(): number {
-    return this.def.speed * this.speedMult * speedMultiplier(this.status);
+    return this.def.speed * this.speedMult * this.surgeMult * speedMultiplier(this.status);
   }
 
   get remaining(): number {

@@ -5,6 +5,7 @@ import { CORE_NEXUS } from './maps/coreNexus';
 import { HARBOR_GRID } from './maps/harborGrid';
 import { NEON_DISTRICT } from './maps/neonDistrict';
 import { ORBITAL_SPIRE } from './maps/orbitalSpire';
+import { OVERLINK } from './maps/overlink';
 import { ZERO_POINT } from './maps/zeroPoint';
 import type { EnemyId } from './enemies';
 
@@ -93,8 +94,13 @@ export interface LevelDef {
   heroMode?: 'random' | 'choose';
   /** Playable from the start, without clearing the map before it. */
   unlocked?: boolean;
+  /**
+   * A multiplayer map (Map 8 on): played in Single mode (one hero) or Multiplayer (2–5 players,
+   * one hero and their own gold each; see PARTY). Built to need a party.
+   */
+  multiplayer?: boolean;
   waves: WaveDef[];
 }
 
 /** All maps in play order. Beating a map unlocks the next one. */
-export const LEVELS: LevelDef[] = [NEON_DISTRICT, HARBOR_GRID, CHROME_CANYON, ORBITAL_SPIRE, ZERO_POINT, BLACKOUT_SECTOR, CORE_NEXUS];
+export const LEVELS: LevelDef[] = [NEON_DISTRICT, HARBOR_GRID, CHROME_CANYON, ORBITAL_SPIRE, ZERO_POINT, BLACKOUT_SECTOR, CORE_NEXUS, OVERLINK];

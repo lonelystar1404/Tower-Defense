@@ -7,7 +7,7 @@ import { Preferences } from '@capacitor/preferences';
  * mirrors those keys into the app's own preferences (UserDefaults), which iOS keeps, and copies
  * them back on launch if the web view lost them. Does nothing in a browser.
  */
-const KEYS = ['td-progress', 'td-saves', 'td-daily', 'td-best', 'td-hero', 'td-muted', 'td-lang'] as const;
+const KEYS = ['td-member', 'td-progress', 'td-saves', 'td-daily', 'td-best', 'td-hero', 'td-muted', 'td-lang'] as const;
 
 const native = Capacitor.isNativePlatform();
 

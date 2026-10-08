@@ -139,8 +139,9 @@ export class HeroBar {
     this.buttons.forEach((b) => b.addEventListener('click', () => this.actions.useAbility(Number(b.dataset.slot))));
   }
 
-  update(game: Game, aiming: number | null, selected: boolean): void {
-    const hero = game.hero;
+  /** Shows `player`'s hero (the one using this screen). */
+  update(game: Game, aiming: number | null, selected: boolean, player = 0): void {
+    const hero = game.players[player]?.hero ?? null;
     this.root.hidden = !hero;
     if (!hero) return;
     if (`${hero.def.id}:${getLang()}` !== this.heroId) this.build(hero.def);

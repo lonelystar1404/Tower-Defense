@@ -9,6 +9,7 @@ export type EnemyId =
   | 'jammer' | 'mirror'
   | 'disruptor' | 'prism'
   | 'burrower' | 'warden'
+  | 'surger'
   // Bosses (one in each map's final wave)
   | 'colossus' | 'bulwark' | 'chimera' | 'leviathan';
 
@@ -42,7 +43,9 @@ export type AbilityDef =
   | { kind: 'disrupt'; radius: number; duration: number; interval: number }
   | { kind: 'shift'; interval: number }
   | { kind: 'burrow'; interval: number; duration: number }
-  | { kind: 'fortify'; radius: number; armor: number };
+  | { kind: 'fortify'; radius: number; armor: number }
+  /** Other enemies within `radius` move `speed`× as fast (recomputed every tick). */
+  | { kind: 'surge'; radius: number; speed: number };
 
 /**
  * What a boss does when its HP first drops to a phase threshold (rules in `Game.updateBoss`):
@@ -231,6 +234,13 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
     reward: 18, livesCost: 2, radius: 0.33, color: '#c0ff3d',
     ability: { kind: 'fortify', radius: 1.8, armor: 5 },
     description: 'Gives other enemies within 1.8 tiles +5 armor; Metal pierce and Earth break it',
+  },
+  surger: {
+    id: 'surger', name: 'Surger',
+    hp: 80, speed: 1.15, armor: 2, movement: 'ground', element: 'fire',
+    reward: 14, livesCost: 1, radius: 0.3, color: '#ff8a3d',
+    ability: { kind: 'surge', radius: 1.8, speed: 1.35 },
+    description: 'Other enemies within 1.8 tiles move 35% faster; kill it first, or slow the whole group',
   },
 
   // Bosses: huge HP pools with phases. Wave groups set their HP multiplier and element per map.

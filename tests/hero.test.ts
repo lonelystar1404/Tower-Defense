@@ -3,6 +3,7 @@ import { ENEMIES, type EnemyId } from '../src/data/enemies';
 import { HEROES, HERO_IDS, HERO_LEVELS, type HeroId } from '../src/data/hero';
 import { LEVELS, type LevelDef } from '../src/data/levels';
 import { Enemy } from '../src/entities/Enemy';
+import type { Hero } from '../src/entities/Hero';
 import { Game } from '../src/game/Game';
 
 const STEP = 1 / 60;
@@ -475,7 +476,7 @@ describe('First roster passives', () => {
     b.hp = 5;
     c.hp = c.maxHp;
     // Kill a directly with a hit
-    (g as unknown as { heroDamage(e: Enemy, d: number): void }).heroDamage(a, 50);
+    (g as unknown as { heroDamage(e: Enemy, d: number, h: Hero): void }).heroDamage(a, 50, g.hero!);
     expect(a.alive).toBe(false);
     expect(b.alive).toBe(false); // caught in a's explosion
     expect(c.hp).toBe(c.maxHp); // b's death didn't explode again

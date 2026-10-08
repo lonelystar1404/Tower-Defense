@@ -58,6 +58,7 @@ describe('Maps', () => {
     expect(newEnemiesIn(4).sort()).toEqual(['jammer', 'mirror']);
     expect(newEnemiesIn(5).sort()).toEqual(['disruptor', 'prism']);
     expect(newEnemiesIn(6).sort()).toEqual(['burrower', 'warden']);
+    expect(newEnemiesIn(7).sort()).toEqual(['surger']);
     // New enemies stay on their own map
     expect(enemiesIn(LEVELS[0])).not.toContain('shielder');
     expect(enemiesIn(LEVELS[3])).not.toContain('ghost');

@@ -27,8 +27,11 @@ export class Hero {
   buffTime = 0;
   buffAttackSpeed = 1;
   buffDamage = 1;
+  /** Party bonus on attack and ability damage (all five elements in the party; see PARTY). */
+  partyMult = 1;
 
-  constructor(readonly def: HeroDef, x: number, y: number) {
+  /** `player`: index of the player who controls this hero (0 in single-player). */
+  constructor(readonly def: HeroDef, x: number, y: number, readonly player = 0) {
     this.x = this.targetX = x;
     this.y = this.targetY = y;
   }
@@ -37,9 +40,9 @@ export class Hero {
     return Math.hypot(this.targetX - this.x, this.targetY - this.y) > 0.02;
   }
 
-  /** Multiplier on attack and ability damage from level. */
+  /** Multiplier on attack and ability damage from level (and the party bonus). */
   get damageMult(): number {
-    return 1 + (this.level - 1) * HERO_LEVELS.damagePerLevel;
+    return (1 + (this.level - 1) * HERO_LEVELS.damagePerLevel) * this.partyMult;
   }
 
   /** Multiplier on ability cooldowns from level. */

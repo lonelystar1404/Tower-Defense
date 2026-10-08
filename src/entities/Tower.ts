@@ -32,7 +32,8 @@ export class Tower {
   /** Knocked out by a Disruptor: doesn't aim, recharge, or fire while > 0. */
   disabledTime = 0;
 
-  constructor(readonly col: number, readonly row: number, option: TowerOption, cost: number) {
+  /** `owner`: index of the player who built it and gets its kill gold (0 in single-player). */
+  constructor(readonly col: number, readonly row: number, option: TowerOption, cost: number, readonly owner = 0) {
     this.weapon = option.weapon;
     this.element = option.element;
     this.stats = towerStats(option);

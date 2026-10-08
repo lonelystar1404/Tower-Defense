@@ -6,6 +6,7 @@ import { t } from '../i18n';
 import { dailyChallenge } from '../game/daily';
 import { isUnlocked, type Progress } from './progress';
 import { DAILY_SLOT, dailyBest, loadRun, mapBest } from './saves';
+import { memberId } from '../platform/member';
 
 /** Enemy types that appear in a map, in order of first appearance. */
 export function enemiesIn(level: LevelDef): EnemyId[] {
@@ -28,8 +29,11 @@ export function newEnemiesIn(index: number): EnemyId[] {
 }
 
 export interface MapMenuActions {
-  /** Start a fresh run on `level` (replacing its saved run, if any). */
-  play(level: LevelDef): void;
+  /**
+   * Start a fresh run on `level` (replacing its saved run, if any). Multiplayer maps say which
+   * mode: one hero ('single') or a party of 2–5 ('party').
+   */
+  play(level: LevelDef, mode?: 'single' | 'party'): void;
   /** Continue the run saved on `level`. */
   resume(level: LevelDef): void;
   /** Today's Daily Challenge: continue the saved attempt, or start a new one. */
@@ -49,12 +53,15 @@ export class MapMenu {
     root.addEventListener('click', (ev) => {
       const el = ev.target as HTMLElement;
       if (el.closest('[data-close]')) return this.actions.close();
+      if (el.closest('[data-copy-member]')) return copyMemberId(el.closest<HTMLElement>('[data-copy-member]')!);
       if (el.closest('[data-daily]')) return this.actions.daily(el.closest<HTMLElement>('[data-daily]')!.dataset.daily === 'resume');
       const card = el.closest<HTMLElement>('[data-level]');
       if (!card || card.classList.contains('locked')) return;
       const level = LEVELS[Number(card.dataset.level)];
       // The card itself does the main action: continue a saved run, else start one.
-      if (el.closest('[data-new]')) this.actions.play(level);
+      const mode = el.closest<HTMLElement>('[data-mode]')?.dataset.mode as 'single' | 'party' | undefined;
+      if (mode) this.actions.play(level, mode);
+      else if (el.closest('[data-new]')) this.actions.play(level);
       else if (el.closest('[data-resume]') || card.dataset.saved) this.actions.resume(level);
       else this.actions.play(level);
     });
@@ -94,16 +101,19 @@ export class MapMenu {
         ? `<span class="map-status locked">🔒 ${t('Clear {map} to unlock', { map: t(LEVELS[i - 1].name) })}</span>`
         : save
           ? `<button class="primary" data-resume>${t('Continue · wave {n}/{total}', { n: save.snapshot.wavesStarted + 1, total: level.waves.length })}</button>
-             <button data-new>${t('New run')}</button>
+             ${level.multiplayer ? `<button data-mode="single">${t('Single')}</button><button data-mode="party">👥 ${t('Multiplayer')}</button>` : `<button data-new>${t('New run')}</button>`}
              <span class="map-save-lives">${t('{n} ♥ left', { n: save.snapshot.lives })}</span>`
-          : `<button class="primary" data-new>${t('Play')}</button>`;
+          : level.multiplayer
+            ? `<button data-mode="single" title="${t('One hero. This map is built for a party: expect to fall.')}">${t('Single')}</button>
+               <button class="primary" data-mode="party">👥 ${t('Multiplayer')}</button>`
+            : `<button class="primary" data-new>${t('Play')}</button>`;
       return `
         <div class="map-card ${unlocked ? '' : 'locked'}" data-level="${i}" ${save ? 'data-saved="1"' : ''} ${unlocked ? '' : 'aria-disabled="true"'}>
           <canvas width="200" height="120" data-preview="${i}"></canvas>
           <div class="map-info">
             <div class="map-title"><span>${i + 1}. ${t(level.name)}</span><span class="map-waves">${t('{n} waves', { n: level.waves.length })}</span></div>
             <p>${t(level.description)}</p>
-            ${level.heroStart ? `<p class="map-hero">${level.heroMode === 'random' ? `🎲 ${t('Random hero')}` : `🦸 ${t('Choose your hero')}`}</p>` : ''}
+            ${level.heroStart ? `<p class="map-hero">${level.multiplayer ? `👥 ${t('2–5 players, a hero each')}` : level.heroMode === 'random' ? `🎲 ${t('Random hero')}` : `🦸 ${t('Choose your hero')}`}</p>` : ''}
             <ul class="map-roster">${roster}</ul>
             ${bestLine}
             <div class="map-actions">${actions}${status}</div>
@@ -118,7 +128,10 @@ export class MapMenu {
         </div>
         ${dailyCard()}
         <div class="map-grid">${cards}</div>
-        <footer class="menu-foot"><a href="privacy.html">${t('Privacy policy')}</a> · <a href="support.html">${t('Support')}</a></footer>
+        <footer class="menu-foot">
+          <button class="member-id" data-copy-member title="${t('Your player ID for multiplayer. Tap to copy.')}">${t('Member ID')} <b>${memberId()}</b></button>
+          <span><a href="privacy.html">${t('Privacy policy')}</a> · <a href="support.html">${t('Support')}</a></span>
+        </footer>
       </div>`;
     this.root.querySelectorAll<HTMLCanvasElement>('[data-preview]').forEach((c) => drawPreview(c, LEVELS[Number(c.dataset.preview)]));
     this.root.hidden = false;
@@ -127,6 +140,18 @@ export class MapMenu {
   hide(): void {
     this.root.hidden = true;
   }
+}
+
+/** Copies the MemberId and says so on the button for a moment. */
+function copyMemberId(button: HTMLElement): void {
+  const label = button.innerHTML;
+  navigator.clipboard?.writeText(memberId()).then(
+    () => {
+      button.innerHTML = `✓ ${t('Copied!')}`;
+      setTimeout(() => (button.innerHTML = label), 1200);
+    },
+    () => {},
+  );
 }
 
 /** Today's Daily Challenge: map, hero, best score, and Play / Continue. */
