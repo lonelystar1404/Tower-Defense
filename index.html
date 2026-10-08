@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tower Defense</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏰</text></svg>" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="topbar">
+        <div class="brand">
+          <h1 data-text="Tower Defense">Tower Defense</h1>
+          <p id="level-name" class="muted"></p>
+        </div>
+        <section class="stats">
+          <div class="stat"><span class="label">Lives</span><span id="lives" class="value lives"></span></div>
+          <div class="stat"><span class="label">Gold</span><span id="gold" class="value gold"></span></div>
+          <div class="stat"><span class="label">Wave</span><span id="wave" class="value"></span></div>
+        </section>
+        <div class="controls">
+          <button id="start-wave" class="primary">Start Wave</button>
+          <div class="speed" role="group" aria-label="Game speed">
+            <button id="pause" title="Pause (P)">⏸</button>
+            <button data-speed="1" class="active">1×</button>
+            <button data-speed="2">2×</button>
+            <button data-speed="3">3×</button>
+          </div>
+          <button id="restart-game" class="icon-button" type="button" title="Restart this map" aria-label="Restart this map">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4v4.5H9" fill="none" /></svg>
+          </button>
+          <button id="open-maps" type="button" title="Map select">Maps</button>
+          <button id="mute" class="icon-button" type="button" aria-pressed="false">
+            <svg class="icon-on" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 9h4l5-4v14l-5-4H4z" />
+              <path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" />
+            </svg>
+            <svg class="icon-off" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 9h4l5-4v14l-5-4H4z" />
+              <path d="M16.5 9.5l5 5M21.5 9.5l-5 5" fill="none" />
+            </svg>
+          </button>
+        </div>
+        <div id="wave-info">
+          <div id="battlefield" class="wave-info-block"></div>
+          <div class="wave-info-block wave-info-enemies">
+            <h2 id="wave-list-title">Next wave</h2>
+            <ul id="next-wave-list"></ul>
+          </div>
+        </div>
+      </header>
+      <main id="stage">
+        <canvas id="game"></canvas>
+        <div id="hero-bar" hidden></div>
+        <div id="prep-bar" hidden>
+          <div class="prep-text">
+            <div id="prep-title"></div>
+            <div id="prep-sub"></div>
+          </div>
+          <div id="prep-time" aria-label="Seconds until the next wave"></div>
+          <button id="prep-ready" class="primary" title="Start the next wave now [Space]">Ready</button>
+          <div class="prep-track"><div id="prep-fill"></div></div>
+        </div>
+        <div id="overlay" hidden>
+          <div class="card">
+            <h2 id="overlay-title"></h2>
+            <p id="overlay-text"></p>
+            <div id="overlay-stats"></div>
+            <div class="overlay-actions">
+              <button id="next-map" class="primary" hidden>Next map</button>
+              <button id="restart">Reboot</button>
+              <button id="overlay-maps">Maps</button>
+            </div>
+          </div>
+        </div>
+      </main>
+      <aside id="sidebar">
+        <section>
+          <h2>Build</h2>
+          <p id="lockdown" hidden></p>
+          <div id="element-picker" role="group" aria-label="Element"></div>
+          <p id="element-info" class="effect"></p>
+          <div id="build-menu"></div>
+        </section>
+
+        <footer class="muted help">
+          Pick an element (<kbd>Q</kbd>–<kbd>T</kbd>) and a weapon (<kbd>1</kbd>–<kbd>6</kbd>), then click an empty pad. Shift-click to build several.<br />
+          <kbd>Space</kbd> ready (next wave) · <kbd>Esc</kbd> cancel · <kbd>U</kbd> upgrade · <kbd>S</kbd> sell · <kbd>P</kbd> pause · <kbd>M</kbd> mute
+        </footer>
+      </aside>
+      <aside id="info-panel" aria-live="polite"></aside>
+      <div id="menu" hidden></div>
+      <div id="hero-select" class="modal" hidden></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
