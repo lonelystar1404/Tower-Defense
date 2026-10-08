@@ -2,15 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Neon Wardens</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏰</text></svg>" />
+    <meta name="theme-color" content="#05060b" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>
   <body>
     <div id="app">
+      <p id="rotate-hint" data-i18n="Turn your phone sideways for a bigger map.">Turn your phone sideways for a bigger map.</p>
       <header id="topbar">
         <div class="brand">
           <h1 data-text="Neon Wardens">Neon Wardens</h1>
@@ -54,17 +53,28 @@
         </div>
       </header>
       <main id="stage">
-        <canvas id="game"></canvas>
-        <div id="hero-bar" hidden></div>
-        <div id="prep-bar" hidden>
-          <div class="prep-text">
-            <div id="prep-title"></div>
-            <div id="prep-sub"></div>
+        <div id="board">
+          <canvas id="game"></canvas>
+          <div id="score-badge">
+            <span class="score-label" data-i18n="Score">Score</span>
+            <span id="score-value">0</span>
+            <span id="score-gain" hidden></span>
           </div>
-          <div id="prep-time" aria-label="Seconds until the next wave" data-i18n-aria="Seconds until the next wave"></div>
-          <button id="prep-ready" class="primary" title="Start the next wave now [Space]" data-i18n-title="Start the next wave now [Space]" data-i18n="Ready">Ready</button>
-          <div class="prep-track"><div id="prep-fill"></div></div>
+          <div id="prep-bar" hidden>
+            <div class="prep-text">
+              <div id="prep-title"></div>
+              <div id="prep-sub"></div>
+            </div>
+            <div id="prep-time" aria-label="Seconds until the next wave" data-i18n-aria="Seconds until the next wave"></div>
+            <button id="prep-ready" class="primary" title="Start the next wave now [Space]" data-i18n-title="Start the next wave now [Space]" data-i18n="Ready">Ready</button>
+            <div class="prep-track"><div id="prep-fill"></div></div>
+          </div>
+          <div id="tool-bar" hidden>
+            <span id="tool-hint"></span>
+            <button id="cancel-tool" type="button" data-i18n="Cancel">Cancel</button>
+          </div>
         </div>
+        <div id="hero-bar" hidden></div>
         <div id="overlay" hidden>
           <div class="card">
             <h2 id="overlay-title"></h2>

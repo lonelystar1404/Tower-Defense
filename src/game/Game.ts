@@ -1,4 +1,5 @@
 import { BATTLEFIELD_BONUS, BATTLEFIELD_IDS, BATTLEFIELDS, type BattlefieldDef, type BattlefieldId } from '../data/battlefields';
+import { SCORE, speedPoints } from '../data/score';
 import { ENEMIES, isBoss, type EnemyId } from '../data/enemies';
 import { PREP_TIME, obstacleTiles, type LevelDef, type WaveDef } from '../data/levels';
 import type { WeaponId } from '../data/weapons';
@@ -160,6 +161,16 @@ export interface GameSnapshot {
   towers: { col: number; row: number; weapon: WeaponId; element: ElementId; level: number; spent: number; priority: TargetPriority }[];
   hero?: { x: number; y: number; level: number; kills: number };
   stats: GameStats;
+  /** Missing in saves from before the score existed (they continue with waves × SCORE.wave). */
+  score?: RunScore;
+}
+
+/** Points earned so far (see SCORE); lives lost are subtracted in `Game.scoreTotal`. */
+export interface RunScore {
+  /** SCORE.wave per cleared wave. */
+  waves: number;
+  /** Speed points summed over cleared waves. */
+  speed: number;
 }
 
 export const SNAPSHOT_VERSION = 1;
@@ -222,8 +233,18 @@ export class Game {
     combos: {},
   };
 
+  /** Points so far (see SCORE and `scoreTotal`). */
+  score: RunScore = { waves: 0, speed: 0 };
+  /** Points from the last cleared wave (for the HUD), null before the first clear. */
+  lastWaveScore: { wave: number; speed: number } | null = null;
+
   private spawnQueue: SpawnEntry[] = [];
   private waveTime = 0;
+  /** Current wave, for its speed points: when its last enemy spawns, its walk window, enemies in it, and leaks. */
+  private waveSpawnEnd = 0;
+  private waveWindow = 1;
+  private waveEnemies = 0;
+  private waveLeaks = 0;
 
   /** See GameOptions. */
   readonly conditionsSeed: number | undefined;
@@ -268,6 +289,7 @@ export class Game {
       game.hero.kills = snap.hero.kills;
     }
     game.stats = structuredClone(snap.stats);
+    game.score = snap.score ? { ...snap.score } : { waves: snap.wavesStarted * SCORE.wave, speed: 0 };
     return game;
   }
 
@@ -290,7 +312,13 @@ export class Game {
       towers: this.towers.map((t) => ({ col: t.col, row: t.row, weapon: t.weapon, element: t.element, level: t.level, spent: t.spent, priority: t.priority })),
       hero: hero ? { x: hero.x, y: hero.y, level: hero.level, kills: hero.kills } : undefined,
       stats: structuredClone(this.stats),
+      score: { ...this.score },
     };
+  }
+
+  /** The run's score: wave and speed points, minus SCORE.life per life below the starting lives (never below 0). */
+  get scoreTotal(): number {
+    return Math.max(0, this.score.waves + this.score.speed - Math.max(0, this.level.lives - this.lives) * SCORE.life);
   }
 
   /** Damage shift on the current battlefield (0 when the level turns battlefields off). */
@@ -390,6 +418,17 @@ export class Game {
     this.spawnQueue = buildSpawnQueue(this.level.waves[this.wavesStarted], this.level.hpScale);
     this.wavesStarted++;
     this.waveTime = 0;
+    // Speed points: the clock starts at the last spawn; the window is the slowest enemy's whole route.
+    this.waveSpawnEnd = this.spawnQueue.at(-1)?.time ?? 0;
+    this.waveWindow = Math.max(
+      1,
+      ...this.spawnQueue.map(({ enemy }) => {
+        const def = ENEMIES[enemy];
+        return (def.movement === 'air' ? this.airPath : this.path).length / def.speed;
+      }),
+    );
+    this.waveEnemies = this.spawnQueue.length;
+    this.waveLeaks = 0;
     this.phase = 'wave';
     this.sound('wave-start');
     return true;
@@ -418,6 +457,7 @@ export class Game {
     this.updateEffects(dt);
     this.enemies = this.enemies.filter((e) => e.alive);
     if (this.pending.length > 0) {
+      this.waveEnemies += this.pending.length;
       this.enemies.push(...this.pending);
       this.pending = [];
     }
@@ -618,6 +658,7 @@ export class Game {
       e.y = p.y;
       if (e.distance >= e.route.length) {
         e.escaped = true;
+        this.waveLeaks++;
         this.lives = Math.max(0, this.lives - e.def.livesCost);
         this.addText(e.x, e.y - 0.4, `-${e.def.livesCost} ♥`, '#ff3864');
         this.sound('leak');
@@ -1266,6 +1307,10 @@ export class Game {
 
   private checkWaveEnd(): void {
     if (this.phase !== 'wave' || this.spawnQueue.length > 0 || this.enemies.length > 0) return;
+    const speed = speedPoints(this.waveTime, this.waveSpawnEnd, this.waveWindow, this.waveEnemies - this.waveLeaks, this.waveLeaks);
+    this.score.waves += SCORE.wave;
+    this.score.speed += speed;
+    this.lastWaveScore = { wave: SCORE.wave, speed };
     this.lastWaveBonus = this.level.waves[this.wavesStarted - 1].bonus;
     this.gold += this.lastWaveBonus;
     this.phase = this.wavesStarted >= this.totalWaves ? 'won' : 'build';

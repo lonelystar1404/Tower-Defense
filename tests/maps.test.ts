@@ -72,8 +72,11 @@ describe('Progress', () => {
     expect(isUnlocked(LEVELS, 2, { cleared: [LEVELS[0].id] })).toBe(false);
   });
 
-  it('opens maps marked unlocked without progress (Zero Point for now)', () => {
+  it('opens maps marked unlocked without progress; Zero Point follows the normal order', () => {
     const zero = LEVELS.findIndex((l) => l.id === 'zero-point');
-    expect(isUnlocked(LEVELS, zero, { cleared: [] })).toBe(true);
+    expect(isUnlocked(LEVELS, zero, { cleared: [] })).toBe(false);
+    expect(isUnlocked(LEVELS, zero, { cleared: [LEVELS[zero - 1].id] })).toBe(true);
+    const open = LEVELS.map((l, i) => (i === zero ? { ...l, unlocked: true } : l));
+    expect(isUnlocked(open, zero, { cleared: [] })).toBe(true);
   });
 });

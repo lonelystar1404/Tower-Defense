@@ -17,8 +17,6 @@ export const ZERO_POINT: LevelDef = {
   hpScale: 1.15,
   heroStart: [10, 5],
   heroMode: 'random',
-  // Temporarily playable without clearing the earlier maps. Remove to restore the unlock order.
-  unlocked: true,
   waves: [
     // 1. meet Vex
     {

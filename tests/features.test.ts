@@ -4,6 +4,7 @@ import { LEVELS, type LevelDef } from '../src/data/levels';
 import { Enemy } from '../src/entities/Enemy';
 import { dailyChallenge, dailyScore } from '../src/game/daily';
 import { Game } from '../src/game/Game';
+import { SCORE, speedPoints } from '../src/data/score';
 import { seededRng } from '../src/systems/rng';
 
 const STEP = 1 / 60;
@@ -186,14 +187,69 @@ describe('Daily Challenge', () => {
     expect(rolls(seededRng(1))).not.toEqual(rolls(seededRng(999)));
   });
 
-  it('scores 100 per wave held, 50 per life left, and 1000 for a win', () => {
+  it('is scored like any map', () => {
     const game = new Game(corridor);
     game.build(3, 1, { weapon: 'cannon', element: 'metal' });
     clearWave(game);
-    expect(dailyScore(game)).toBe(100 + 20 * 50);
+    expect(dailyScore(game)).toBe(game.scoreTotal);
+    expect(dailyScore(game)).toBeGreaterThan(100);
+  });
+});
+
+describe('Map score', () => {
+  it('speed points: full right after the last spawn, none a full walk later, cut by leaks', () => {
+    expect(speedPoints(10, 10, 8, 5, 0)).toBe(SCORE.speed);
+    expect(speedPoints(5, 10, 8, 5, 0)).toBe(SCORE.speed);
+    expect(speedPoints(14, 10, 8, 5, 0)).toBe(SCORE.speed / 2);
+    expect(speedPoints(18, 10, 8, 5, 0)).toBe(0);
+    expect(speedPoints(30, 10, 8, 5, 0)).toBe(0);
+    expect(speedPoints(10, 10, 8, 3, 1)).toBe(Math.round(SCORE.speed * 0.75));
+  });
+
+  it('a fast clear earns the wave points plus most of the speed points', () => {
+    const game = new Game(corridor);
+    expect(game.scoreTotal).toBe(0);
+    game.build(3, 1, { weapon: 'cannon', element: 'metal' });
     clearWave(game);
+    expect(game.score.waves).toBe(SCORE.wave);
+    // The grunt dies near the start of a 12-tile road it would need ~8.6s to walk.
+    expect(game.score.speed).toBeGreaterThan(60);
+    expect(game.lastWaveScore).toEqual({ wave: SCORE.wave, speed: game.score.speed });
+    expect(game.scoreTotal).toBe(SCORE.wave + game.score.speed);
+  });
+
+  it('a slower clear earns fewer speed points', () => {
+    const near = new Game(corridor);
+    near.build(3, 1, { weapon: 'cannon', element: 'metal' });
+    clearWave(near);
+    const far = new Game(corridor);
+    far.build(9, 1, { weapon: 'cannon', element: 'metal' });
+    clearWave(far);
+    expect(far.lives).toBe(20);
+    expect(far.score.speed).toBeLessThan(near.score.speed);
+  });
+
+  it('leaking costs points per life and earns no speed points', () => {
+    const game = new Game(corridor);
     clearWave(game);
-    expect(game.phase).toBe('won');
-    expect(dailyScore(game)).toBe(300 + 20 * 50 + 1000);
+    expect(game.lives).toBe(19);
+    expect(game.score).toEqual({ waves: SCORE.wave, speed: 0 });
+    expect(game.scoreTotal).toBe(SCORE.wave - SCORE.life);
+  });
+
+  it('never goes below 0', () => {
+    const game = new Game(corridor);
+    game.lives = 5;
+    expect(game.scoreTotal).toBe(0);
+  });
+
+  it('survives save and resume; old saves without a score continue from their waves', () => {
+    const game = new Game(corridor);
+    game.build(3, 1, { weapon: 'cannon', element: 'metal' });
+    clearWave(game);
+    const snap = JSON.parse(JSON.stringify(game.snapshot()));
+    expect(Game.restore(corridor, snap).scoreTotal).toBe(game.scoreTotal);
+    delete snap.score;
+    expect(Game.restore(corridor, snap).score).toEqual({ waves: SCORE.wave, speed: 0 });
   });
 });

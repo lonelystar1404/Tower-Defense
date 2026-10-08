@@ -23,6 +23,7 @@ export interface InfoActions {
   upgradeSelected(): void;
   sellSelected(): void;
   cyclePriority(): void;
+  closeInfo(): void;
 }
 
 export const PRIORITY_LABELS: Record<TargetPriority, string> = {
@@ -45,6 +46,7 @@ export class InfoPanel {
       if (action === 'sell') actions.sellSelected();
       if (action === 'upgrade') actions.upgradeSelected();
       if (action === 'priority') actions.cyclePriority();
+      if (action === 'close') actions.closeInfo();
     });
   }
 
@@ -54,6 +56,8 @@ export class InfoPanel {
   }
 
   update(game: Game, subject: InfoSubject): void {
+    // On phones the panel floats over the build menu, only for a placed tower or the hero.
+    this.root.dataset.kind = subject?.kind ?? 'none';
     const key = `${getLang()}:${this.keyFor(game, subject)}`;
     if (key === this.key) return;
     this.key = key;
@@ -64,13 +68,18 @@ export class InfoPanel {
       return;
     }
     if (subject.kind === 'hero') {
-      this.root.innerHTML = this.renderHero(game);
+      this.root.innerHTML = this.renderHero(game) + this.closeButton();
       return;
     }
     const option = subject.kind === 'build' ? subject.option : { weapon: subject.tower.weapon, element: subject.tower.element };
     const tower = subject.kind === 'placed' ? subject.tower : null;
-    this.root.innerHTML = this.render(game, option, tower);
+    this.root.innerHTML = this.render(game, option, tower) + (tower ? this.closeButton() : '');
     drawIcon(this.root.querySelector('canvas')!, option, tower?.level ?? 1);
+  }
+
+  /** Close (deselect) button, shown only where the panel floats over the build menu (phones). */
+  private closeButton(): string {
+    return `<button class="info-close" type="button" data-action="close" aria-label="${t('Close')}" title="${t('Close')}">✕</button>`;
   }
 
   private keyFor(game: Game, subject: InfoSubject): string {

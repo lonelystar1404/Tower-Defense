@@ -1,11 +1,14 @@
 /**
  * Styled hover tooltips. Any element with `data-tip` (the title) gets a tooltip with optional
- * `data-tip-meta` (a muted line) and `data-tip-body` (the description) as soon as the pointer
- * is over it. One floating element for the whole page, placed above the target (below if
+ * `data-tip-meta` (a muted line) and `data-tip-body` (the description) as soon as the mouse
+ * is over it (on touch: when it's tapped, unless it's a button). One floating element for the whole page, placed above the target (below if
  * there's no room), so it is never clipped by its container.
  */
 let tip: HTMLDivElement | null = null;
 let current: HTMLElement | null = null;
+/** Touch: a tapped tip hides itself after a while (there's no pointer leaving). */
+let hideTimer = 0;
+const TOUCH_TIP_MS = 3000;
 
 function element(): HTMLDivElement {
   if (!tip) {
@@ -40,6 +43,7 @@ function show(target: HTMLElement): void {
 }
 
 function hide(): void {
+  clearTimeout(hideTimer);
   current = null;
   if (tip) tip.hidden = true;
 }
@@ -47,6 +51,7 @@ function hide(): void {
 /** Starts showing tooltips for `[data-tip]` elements anywhere on the page. Call once. */
 export function initTooltips(): void {
   document.addEventListener('pointerover', (ev) => {
+    if (ev.pointerType !== 'mouse') return;
     const target = (ev.target as HTMLElement).closest<HTMLElement>('[data-tip]');
     if (target === current) return;
     current = target;
@@ -55,6 +60,16 @@ export function initTooltips(): void {
   });
   // Content under the pointer can be rebuilt (language change, new hero): don't leave a stale tip.
   document.addEventListener('pointerdown', hide);
+  // Touch has no hover: tapping something that isn't a button (a passive tile, an ability in a
+  // list, also inside a hero card) shows its tip for a few seconds. Buttons keep doing what they do.
+  document.addEventListener('pointerup', (ev) => {
+    if (ev.pointerType === 'mouse') return;
+    const target = (ev.target as HTMLElement).closest<HTMLElement>('[data-tip]');
+    if (!target || target.closest('button:not(.hero-card)')) return;
+    current = target;
+    show(target);
+    hideTimer = window.setTimeout(hide, TOUCH_TIP_MS);
+  });
   window.addEventListener('scroll', hide, true);
 }
 

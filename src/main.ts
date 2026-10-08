@@ -16,9 +16,13 @@ import { MapMenu } from './ui/MapMenu';
 import { initTooltips } from './ui/tooltip';
 import { isHeroUnlocked, loadProgress, markCleared } from './ui/progress';
 import { dailyChallenge, dailyScore, type DailyChallenge } from './game/daily';
-import { clearRun, DAILY_SLOT, loadRun, recordDaily, saveRun, type SaveSlot } from './ui/saves';
+import { clearRun, DAILY_SLOT, loadRun, recordDaily, recordMapBest, saveRun, type SaveSlot } from './ui/saves';
 import { getLang, initialLang, LANGS, setLang, t, type Lang } from './i18n';
+import { backupNativeStorage, restoreNativeStorage } from './platform/nativeStorage';
+import { SCORE } from './data/score';
 
+// iOS app: bring back saves the web view may have lost (no-op in a browser).
+await restoreNativeStorage();
 setLang(initialLang(), false);
 
 /** Fixed simulation step, so game speed and frame rate don't change outcomes. */
@@ -40,7 +44,7 @@ let run: { slot: SaveSlot; daily: DailyChallenge | null } = { slot: LEVELS[0].id
 let savedWave = 0;
 
 let game = new Game(level);
-const view: ViewState & { element: ElementId; speed: number; paused: boolean } = {
+const view: ViewState & { element: ElementId; speed: number; paused: boolean; touch: boolean } = {
   element: 'fire',
   hover: null,
   pointer: null,
@@ -50,6 +54,8 @@ const view: ViewState & { element: ElementId; speed: number; paused: boolean } =
   selected: null,
   speed: 1,
   paused: false,
+  /** Last input on the map was touch (or pen), not a mouse. */
+  touch: false,
 };
 
 const renderer = new Renderer(canvas);
@@ -58,6 +64,7 @@ const muteButton = document.getElementById('mute') as HTMLButtonElement;
 
 // Browsers only allow audio after the player interacts with the page.
 for (const type of ['pointerdown', 'keydown'] as const) window.addEventListener(type, () => sound.unlock(), { capture: true });
+window.addEventListener('pointerdown', (ev) => (view.touch = ev.pointerType !== 'mouse'), { capture: true });
 
 function toggleMute(): void {
   sound.setMuted(!sound.muted);
@@ -79,6 +86,11 @@ const hud = new Hud({
   chooseElement,
   sellSelected,
   upgradeSelected,
+  cancelTool,
+  closeInfo: () => {
+    view.selected = null;
+    view.heroSelected = false;
+  },
   cyclePriority: () => {
     const t = view.selected;
     if (!t) return;
@@ -231,11 +243,18 @@ function persist(): void {
   if (!snapshot) return;
   saveRun(run.slot, { snapshot, date: run.daily?.date });
   savedWave = game.wavesStarted;
+  backupNativeStorage();
 }
-// Closing or hiding the tab keeps towers built since the last clear.
-window.addEventListener('pagehide', persist);
+// Closing or hiding the tab (or leaving the iOS app) keeps towers built since the last clear,
+// and settings changed since.
+window.addEventListener('pagehide', () => {
+  persist();
+  backupNativeStorage();
+});
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') persist();
+  if (document.visibilityState !== 'hidden') return;
+  persist();
+  backupNativeStorage();
 });
 
 /** Copies a daily result for friends (falls back to a prompt where the clipboard is blocked). */
@@ -249,7 +268,8 @@ function shareResult(): void {
     `${t(daily.level.name)}${hero}`,
     won ? `✅ ${t('Won · {n} ♥ left', { n: game.lives })}` : `💥 ${t('Fell on wave {n}/{total}', { n: game.wavesStarted, total: game.totalWaves })}`,
     t('Score {score}', { score: dailyScore(game).toLocaleString() }),
-    location.href.split('#')[0],
+    // Inside the iOS app the page lives at capacitor://localhost, which is no use to friends.
+    ...(location.protocol.startsWith('http') ? [location.href.split('#')[0]] : []),
   ].join('\n');
   navigator.clipboard?.writeText(text).then(
     () => hud.flashShared(),
@@ -303,35 +323,101 @@ function tileAt(ev: MouseEvent): { col: number; row: number } {
   };
 }
 
-canvas.addEventListener('mousemove', (ev) => {
-  view.hover = tileAt(ev);
-  view.pointer = pointerAt(ev);
-});
-canvas.addEventListener('mouseleave', () => {
+/**
+ * Touch has no hover, so the build preview and ability aim follow taps instead: the first tap
+ * shows the preview there, a second tap on the same spot confirms. A long press stands in for
+ * right-click. Mouse input is unchanged.
+ */
+/** How close (in tiles) a second tap must be to the first to confirm an aimed ability. */
+const AIM_CONFIRM = 0.75;
+const LONG_PRESS_MS = 500;
+let longPress: { timer: number; x: number; y: number } | null = null;
+/** Set when a long press fired, so the click that follows the finger lifting is ignored. */
+let swallowClick = false;
+
+function cancelTool(): void {
+  view.aiming = null;
+  view.buildChoice = null;
   view.hover = null;
   view.pointer = null;
-});
-// Right-click cancels whatever is in progress; otherwise it walks the hero there.
-canvas.addEventListener('contextmenu', (ev) => {
-  ev.preventDefault();
+}
+
+/** Right-click (or long press): cancel whatever is in progress, else walk the hero there. */
+function secondaryAction(p: { x: number; y: number }): void {
   if (view.aiming !== null || view.buildChoice) {
-    view.aiming = null;
-    view.buildChoice = null;
+    cancelTool();
     return;
   }
   if (game.hero) {
-    const p = pointerAt(ev);
     game.moveHero(p.x, p.y);
     return;
   }
   view.selected = null;
+}
+
+function endLongPress(): void {
+  if (longPress) clearTimeout(longPress.timer);
+  longPress = null;
+}
+
+canvas.addEventListener('pointerdown', (ev) => {
+  if (ev.pointerType === 'mouse') return;
+  endLongPress();
+  const p = pointerAt(ev);
+  longPress = {
+    x: ev.clientX,
+    y: ev.clientY,
+    timer: window.setTimeout(() => {
+      longPress = null;
+      swallowClick = true;
+      secondaryAction(p);
+      sound.play('click');
+    }, LONG_PRESS_MS),
+  };
+});
+canvas.addEventListener('pointermove', (ev) => {
+  if (ev.pointerType === 'mouse') {
+    view.hover = tileAt(ev);
+    view.pointer = pointerAt(ev);
+  } else if (longPress && Math.hypot(ev.clientX - longPress.x, ev.clientY - longPress.y) > 10) endLongPress();
+});
+for (const type of ['pointerup', 'pointercancel'] as const) canvas.addEventListener(type, endLongPress);
+canvas.addEventListener('pointerleave', (ev) => {
+  if (ev.pointerType !== 'mouse') return;
+  view.hover = null;
+  view.pointer = null;
+});
+canvas.addEventListener('contextmenu', (ev) => {
+  ev.preventDefault();
+  // A long press already handled it (some browsers also send contextmenu for one).
+  if (view.touch) return;
+  secondaryAction(pointerAt(ev));
 });
 canvas.addEventListener('click', (ev) => {
+  if (swallowClick) {
+    swallowClick = false;
+    return;
+  }
   const { col, row } = tileAt(ev);
   const p = pointerAt(ev);
+  const touch = view.touch;
+  // Touch: remember the previous tap's preview, then clear it unless this tap previews again.
+  const previewTile = view.hover;
+  const previewPoint = view.pointer;
+  if (touch) {
+    view.hover = null;
+    view.pointer = null;
+  }
   if (view.aiming !== null) {
+    if (touch && !(previewPoint && Math.hypot(previewPoint.x - p.x, previewPoint.y - p.y) <= AIM_CONFIRM)) {
+      view.pointer = p;
+      return;
+    }
     if (game.castHero(view.aiming, p.x, p.y)) view.aiming = null;
-    else sound.play('denied');
+    else {
+      sound.play('denied');
+      if (touch) view.pointer = p;
+    }
     return;
   }
   const hero = game.hero;
@@ -351,8 +437,16 @@ canvas.addEventListener('click', (ev) => {
     return;
   }
   if (view.buildChoice) {
+    if (touch && !(previewTile && previewTile.col === col && previewTile.row === row)) {
+      view.hover = { col, row };
+      view.pointer = p;
+      return;
+    }
     const built: Tower | null = game.build(col, row, view.buildChoice);
-    if (!built) sound.play('denied');
+    if (!built) {
+      sound.play('denied');
+      if (touch) view.hover = { col, row };
+    }
     // Shift-click keeps the build tool active for placing several towers.
     if (built && !ev.shiftKey) view.buildChoice = null;
     return;
@@ -367,9 +461,8 @@ window.addEventListener('keydown', (ev) => {
     ev.preventDefault();
     game.startWave();
   } else if (ev.key === 'Escape') {
-    view.buildChoice = null;
+    cancelTool();
     view.selected = null;
-    view.aiming = null;
     view.heroSelected = false;
   } else if (ev.key === 's' || ev.key === 'S') {
     sellSelected();
@@ -413,7 +506,20 @@ function frame(now: number): void {
     endRecorded = true;
     clearRun(run.slot);
     if (run.daily) hud.setDailyBest(recordDaily(run.daily.date, dailyScore(game)));
-    else if (game.phase === 'won') progress = markCleared(progress, level.id);
+    else {
+      if (game.phase === 'won') progress = markCleared(progress, level.id);
+      const won = game.phase === 'won';
+      hud.setMapBest(
+        recordMapBest(level.id, {
+          score: game.scoreTotal,
+          lives: game.lives,
+          waves: game.score.waves / SCORE.wave,
+          won,
+          hero: game.hero?.def.callsign,
+        }),
+      );
+    }
+    backupNativeStorage();
   } else if (game.phase === 'build' && game.wavesStarted > savedWave) {
     persist();
   }
@@ -439,8 +545,17 @@ function applyStaticText(): void {
   document.querySelectorAll<HTMLElement>('[data-i18n]').forEach((el) => (el.textContent = t(el.dataset.i18n!)));
   document.querySelectorAll<HTMLElement>('[data-i18n-title]').forEach((el) => (el.title = t(el.dataset.i18nTitle!)));
   document.querySelectorAll<HTMLElement>('[data-i18n-aria]').forEach((el) => el.setAttribute('aria-label', t(el.dataset.i18nAria!)));
+  const help = document.getElementById('help')!;
+  // Touch screens (phones, tablets): the tap flow instead of keyboard shortcuts.
+  if (matchMedia('(pointer: coarse)').matches) {
+    help.innerHTML = [
+      t('Tap an element and a weapon, then tap an empty pad to preview it and tap again to build.'),
+      t('Tap a tower to upgrade or sell it. Tap your hero, then tap the map to move; a long press also moves the hero or cancels.'),
+    ].join('<br />');
+    return;
+  }
   const k = (key: string) => `<kbd>${key}</kbd>`;
-  document.getElementById('help')!.innerHTML =
+  help.innerHTML =
     t('Pick an element ({elements}) and a weapon ({weapons}), then click an empty pad. Shift-click to build several.', {
       elements: `${k('Q')}–${k('T')}`,
       weapons: `${k('1')}–${k('6')}`,

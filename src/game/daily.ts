@@ -33,12 +33,7 @@ export function dailyChallenge(now = new Date()): DailyChallenge {
   return { date, seed, level, hero };
 }
 
-/** Points per wave cleared, per life left, and for winning. */
-export const DAILY_SCORE = { wave: 100, life: 50, win: 1000 } as const;
-
-/** Waves held (all of them after a win) × 100, + lives left × 50, + 1000 for a win. */
+/** The daily is scored like any map (see SCORE in src/data/score.ts). */
 export function dailyScore(game: Game): number {
-  const won = game.phase === 'won';
-  const cleared = won ? game.totalWaves : Math.max(0, game.wavesStarted - (game.phase === 'wave' || game.phase === 'lost' ? 1 : 0));
-  return cleared * DAILY_SCORE.wave + game.lives * DAILY_SCORE.life + (won ? DAILY_SCORE.win : 0);
+  return game.scoreTotal;
 }

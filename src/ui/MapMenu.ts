@@ -5,7 +5,7 @@ import { HEROES } from '../data/hero';
 import { t } from '../i18n';
 import { dailyChallenge } from '../game/daily';
 import { isUnlocked, type Progress } from './progress';
-import { DAILY_SLOT, dailyBest, loadRun } from './saves';
+import { DAILY_SLOT, dailyBest, loadRun, mapBest } from './saves';
 
 /** Enemy types that appear in a map, in order of first appearance. */
 export function enemiesIn(level: LevelDef): EnemyId[] {
@@ -86,6 +86,10 @@ export class MapMenu {
         .join('');
       const save = unlocked ? loadRun(level.id) : null;
       const status = cleared ? `<span class="map-status cleared">✓ ${t('Cleared')}</span>` : '';
+      const best = unlocked ? mapBest(level.id) : null;
+      const bestLine = best
+        ? `<p class="map-best">🏆 ${t('Best score {score}', { score: best.score.toLocaleString() })} · ${best.won ? t('{n} ♥ left', { n: best.lives }) : t('fell on wave {n}', { n: best.waves + 1 })}${best.hero ? ` · ${best.hero}` : ''}</p>`
+        : '';
       const actions = !unlocked
         ? `<span class="map-status locked">🔒 ${t('Clear {map} to unlock', { map: t(LEVELS[i - 1].name) })}</span>`
         : save
@@ -101,6 +105,7 @@ export class MapMenu {
             <p>${t(level.description)}</p>
             ${level.heroStart ? `<p class="map-hero">${level.heroMode === 'random' ? `🎲 ${t('Random hero')}` : `🦸 ${t('Choose your hero')}`}</p>` : ''}
             <ul class="map-roster">${roster}</ul>
+            ${bestLine}
             <div class="map-actions">${actions}${status}</div>
           </div>
         </div>`;
@@ -113,6 +118,7 @@ export class MapMenu {
         </div>
         ${dailyCard()}
         <div class="map-grid">${cards}</div>
+        <footer class="menu-foot"><a href="privacy.html">${t('Privacy policy')}</a> · <a href="support.html">${t('Support')}</a></footer>
       </div>`;
     this.root.querySelectorAll<HTMLCanvasElement>('[data-preview]').forEach((c) => drawPreview(c, LEVELS[Number(c.dataset.preview)]));
     this.root.hidden = false;

@@ -11,7 +11,9 @@ import type { Tower } from '../entities/Tower';
 import type { Game } from '../game/Game';
 import { drawTower } from '../render/sprites';
 import { InfoPanel, type InfoSubject } from './InfoPanel';
-import { DAILY_SCORE, dailyScore, type DailyChallenge } from '../game/daily';
+import type { DailyChallenge } from '../game/daily';
+import { SCORE } from '../data/score';
+import type { MapBest } from './saves';
 import { t } from '../i18n';
 
 export interface HudActions {
@@ -30,6 +32,10 @@ export interface HudActions {
   nextMap(): void;
   /** Copy the Daily Challenge result to share. */
   share(): void;
+  /** Drop the build tool or ability aim (the Cancel button over the map). */
+  cancelTool(): void;
+  /** Deselect the tower or hero shown in the info panel. */
+  closeInfo(): void;
 }
 
 export interface HudView {
@@ -40,6 +46,10 @@ export interface HudView {
   selected: Tower | null;
   speed: number;
   paused: boolean;
+  /** Hero ability slot being aimed. */
+  aiming: number | null;
+  /** The player is using touch: hints say "tap" and describe the tap-twice confirm. */
+  touch: boolean;
 }
 
 function $<T extends HTMLElement>(id: string): T {
@@ -67,6 +77,8 @@ export class Hud {
   private readonly prepSub = $('prep-sub');
   private readonly prepTime = $('prep-time');
   private readonly prepFill = $('prep-fill');
+  private readonly toolBar = $('tool-bar');
+  private readonly toolHint = $('tool-hint');
   private readonly info: InfoPanel;
   /** Weapon card under the mouse, previewed in the info panel. */
   private hoverWeapon: WeaponId | null = null;
@@ -76,6 +88,16 @@ export class Hud {
   /** The Daily Challenge being played, if any, and the best score recorded today. */
   private daily: DailyChallenge | null = null;
   private dailyBestScore = 0;
+  /** Campaign runs: the map's best before this run ended, and whether this run beat it. */
+  private mapBest: { previous: MapBest | null; isNew: boolean } | null = null;
+  private readonly scoreBadge = $('score-badge');
+  private readonly scoreValue = $('score-value');
+  private readonly scoreGain = $('score-gain');
+  /** Score badge animation: the wave whose points are showing, until when (game time), and the last total. */
+  private gainWave = 0;
+  private gainUntil = 0;
+  private lastScore = 0;
+  private dropUntil = 0;
 
   constructor(actions: HudActions) {
     this.startWave.addEventListener('click', () => actions.startWave());
@@ -89,6 +111,7 @@ export class Hud {
     $('overlay-maps').addEventListener('click', () => actions.openMaps());
     $('next-map').addEventListener('click', () => actions.nextMap());
     $('share-result').addEventListener('click', () => actions.share());
+    $('cancel-tool').addEventListener('click', () => actions.cancelTool());
 
     const picker = $('element-picker');
     BUILD_ELEMENTS.forEach((element, i) => {
@@ -121,8 +144,11 @@ export class Hud {
       cost.textContent = String(w.cost);
       el.append(cost);
       el.addEventListener('click', () => actions.chooseWeapon(weapon));
-      el.addEventListener('mouseenter', () => (this.hoverWeapon = weapon));
-      el.addEventListener('mouseleave', () => (this.hoverWeapon = null));
+      // Mouse only: a tap would leave the card "hovered" until the next tap elsewhere.
+      el.addEventListener('pointerenter', (ev) => {
+        if (ev.pointerType === 'mouse') this.hoverWeapon = weapon;
+      });
+      el.addEventListener('pointerleave', () => (this.hoverWeapon = null));
       menu.append(el);
       this.buildCards.push({ weapon, el, icon, name: text.querySelector('.name')!, cost });
     });
@@ -132,11 +158,21 @@ export class Hud {
   setDaily(daily: DailyChallenge | null): void {
     this.daily = daily;
     this.dailyBestScore = 0;
+    this.mapBest = null;
+    this.gainWave = 0;
+    this.gainUntil = 0;
+    this.lastScore = 0;
     this.cache.delete($('overlay-text'));
   }
 
   setDailyBest(best: number): void {
     this.dailyBestScore = best;
+  }
+
+  /** The map's best score when the run ended (campaign runs). */
+  setMapBest(result: { previous: MapBest | null; isNew: boolean } | null): void {
+    this.mapBest = result;
+    this.cache.delete($('overlay-text'));
   }
 
   /** Brief "Copied!" on the share button. */
@@ -177,6 +213,8 @@ export class Hud {
           : t('Ready · wave {n}', { n: nextWave }),
     );
     this.updatePrepBar(game);
+    this.updateToolBar(game, view);
+    this.updateScore(game);
     this.setText(this.pause, view.paused ? '▶' : '⏸');
     for (const b of this.speedButtons) b.classList.toggle('active', Number(b.dataset.speed) === view.speed);
 
@@ -258,6 +296,60 @@ export class Hud {
     this.prepFill.style.width = remaining === null ? '0%' : `${(remaining / game.prepTime) * 100}%`;
   }
 
+  /**
+   * Over the bottom of the map while a tool is active: what to do next and a Cancel button
+   * (touch players have no right-click or Esc). The hero hint is for touch only.
+   */
+  private updateToolBar(game: Game, view: HudView): void {
+    let hint = '';
+    if (view.aiming !== null && game.hero) {
+      const name = t(game.hero.ability(view.aiming).name);
+      hint = view.touch ? t('{ability}: tap to aim, tap the same spot again to fire', { ability: name }) : t('{ability}: click to fire', { ability: name });
+    } else if (view.buildChoice) {
+      hint = view.touch ? t('Tap a pad to preview, tap it again to build') : t('Click a pad to build · Shift-click to build several');
+    } else if (view.heroSelected && game.hero && view.touch) {
+      hint = t('Tap the map to move {name}', { name: game.hero.def.callsign });
+    }
+    this.toolBar.hidden = !hint || game.over;
+    $('cancel-tool').hidden = view.aiming === null && !view.buildChoice;
+    this.setText(this.toolHint, hint);
+  }
+
+  /**
+   * Score at the top left of the map. After a clear, "+175" (wave + speed points) shows next to
+   * it for a few seconds; losing a life flashes it red.
+   */
+  private updateScore(game: Game): void {
+    const total = game.scoreTotal;
+    this.setText(this.scoreValue, total.toLocaleString());
+    if (total < this.lastScore) this.dropUntil = game.time + 1;
+    this.lastScore = total;
+    this.scoreBadge.classList.toggle('drop', game.time < this.dropUntil);
+    const cleared = game.score.waves / SCORE.wave;
+    if (game.lastWaveScore && cleared > this.gainWave) {
+      this.gainWave = cleared;
+      this.gainUntil = game.time + 4;
+      const { wave, speed } = game.lastWaveScore;
+      this.setText(this.scoreGain, `+${wave + speed}` + (speed > 0 ? ` ⚡${speed}` : ''));
+    }
+    this.scoreGain.hidden = game.time >= this.gainUntil;
+    const lost = Math.max(0, game.level.lives - game.lives);
+    const tip = t('Waves {waves} · Speed {speed} · Lives lost −{lives}', {
+      waves: game.score.waves,
+      speed: game.score.speed,
+      lives: lost * SCORE.life,
+    });
+    if (this.scoreBadge.dataset.tipMeta !== tip) {
+      this.scoreBadge.dataset.tip = t('Score');
+      this.scoreBadge.dataset.tipMeta = tip;
+      this.scoreBadge.dataset.tipBody = t('{wave} per wave cleared, up to {speed} more for clearing it fast (after its last enemy appears), −{life} per life lost.', {
+        wave: SCORE.wave,
+        speed: SCORE.speed,
+        life: SCORE.life,
+      });
+    }
+  }
+
   private updateBattlefield(game: Game): void {
     const field = game.battlefield;
     const up = ELEMENTS[field.element];
@@ -335,16 +427,19 @@ export class Hud {
       game.phase === 'won'
         ? t(game.lives === 1 ? 'All {waves} waves held with {lives} life left.' : 'All {waves} waves held with {lives} lives left.', { waves: game.totalWaves, lives: game.lives })
         : t('You fell on wave {n} of {total}.', { n: game.wavesStarted, total: game.totalWaves });
-    const score = dailyScore(game);
+    const score = game.scoreTotal;
+    const scoreText = `${t('Score {score}.', { score: score.toLocaleString() })} `;
+    const best = this.mapBest;
     this.setText(
       $('overlay-text'),
       this.daily
-        ? `${held} ${t('Score {score} ({wave} per wave held, {life} per life, +{win} for a win).', { score: score.toLocaleString(), wave: DAILY_SCORE.wave, life: DAILY_SCORE.life, win: DAILY_SCORE.win })} ` +
-          (score >= this.dailyBestScore ? t('Your best today!') : t('Best today: {score}.', { score: this.dailyBestScore.toLocaleString() }))
+        ? `${held} ${scoreText}` + (score >= this.dailyBestScore ? t('Your best today!') : t('Best today: {score}.', { score: this.dailyBestScore.toLocaleString() }))
         : held +
           (game.phase === 'won'
             ? ' ' + (index >= 0 && index < LEVELS.length - 1 ? t('{map} unlocked.', { map: t(LEVELS[index + 1].name) }) : t('Every map cleared!'))
-            : ''),
+            : '') +
+          ` ${scoreText}` +
+          (!best ? '' : best.isNew ? t('New best on this map!') : t('Best on this map: {score}.', { score: best.previous!.score.toLocaleString() })),
     );
     const html = statsBreakdown(game);
     if (this.cache.get($('overlay-stats')) !== html) {
@@ -395,5 +490,11 @@ function statsBreakdown(game: Game): string {
       </ul>
     </div>
     <div class="stat-block"><h3>${t('Tower damage')}</h3><ul>${weapons || '<li>—</li>'}</ul></div>
-    <div class="stat-block"><h3>${t('Combos')}</h3><ul>${comboList || `<li>${t('None')}</li>`}</ul></div>`;
+    <div class="stat-block"><h3>${t('Combos')}</h3><ul>${comboList || `<li>${t('None')}</li>`}</ul></div>
+    <div class="stat-block"><h3>${t('Score')}</h3><ul>
+      <li>${t('Waves')}<span>+${game.score.waves.toLocaleString()}</span></li>
+      <li>${t('Speed')}<span>+${game.score.speed.toLocaleString()}</span></li>
+      <li>${t('Lives lost')}<span>${game.lives < game.level.lives ? `−${((game.level.lives - game.lives) * SCORE.life).toLocaleString()}` : '0'}</span></li>
+      <li><b>${t('Total')}</b><span><b>${game.scoreTotal.toLocaleString()}</b></span></li>
+    </ul></div>`;
 }

@@ -6,6 +6,7 @@ import { SNAPSHOT_VERSION, type GameSnapshot } from '../game/Game';
  */
 const KEY = 'td-saves';
 const DAILY_KEY = 'td-daily';
+const BEST_KEY = 'td-best';
 
 export type SaveSlot = string;
 export const DAILY_SLOT: SaveSlot = 'daily';
@@ -71,4 +72,45 @@ export function recordDaily(date: string, score: number): number {
     // Storage blocked: the best score lasts for this visit only.
   }
   return best;
+}
+
+/** Best finished score on a map, with who got it (the hero, on hero maps) and how many lives were left. */
+export interface MapBest {
+  score: number;
+  lives: number;
+  /** Waves held: all of them for a win. */
+  waves: number;
+  won: boolean;
+  hero?: string;
+}
+
+function readBests(): Record<string, MapBest> {
+  try {
+    const data = JSON.parse(localStorage.getItem(BEST_KEY) ?? '{}') as Record<string, MapBest>;
+    return data && typeof data === 'object' ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Best score recorded on `levelId` (campaign runs only), or null. */
+export function mapBest(levelId: string): MapBest | null {
+  const best = readBests()[levelId];
+  return best && typeof best.score === 'number' ? best : null;
+}
+
+/** Records a finished run on a map; returns the previous best (null if none) and whether this beat it. */
+export function recordMapBest(levelId: string, run: MapBest): { previous: MapBest | null; isNew: boolean } {
+  const all = readBests();
+  const previous = all[levelId] ?? null;
+  const isNew = !previous || run.score > previous.score;
+  if (isNew) {
+    all[levelId] = run;
+    try {
+      localStorage.setItem(BEST_KEY, JSON.stringify(all));
+    } catch {
+      // Storage blocked: the best lasts for this visit only.
+    }
+  }
+  return { previous, isNew };
 }

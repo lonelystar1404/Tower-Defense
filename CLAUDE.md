@@ -5,7 +5,7 @@ This file gives Claude Code the context it needs to work on this project. It sta
 ## Project Overview
 
 **Name:** Neon Wardens (towers and heroes guarding the data core)
-**Platform:** Web browser (desktop first; mobile/touch later, TBD)
+**Platform:** Web browser (desktop and touch) and an iOS app (the same web build wrapped with Capacitor; see iOS App and Touch)
 **Purpose:** A tower defense game where every tower is built from two choices:
 
 1. **Element** (what the attack *does*): Fire, Water, Wood, Earth, Metal
@@ -188,7 +188,7 @@ Each enemy has HP, speed, armor, movement type (ground or air), an element (opti
 
 ## Maps (built)
 
-Seven maps, played in order from a **map select** screen; beating a map unlocks the next (saved in localStorage, key `td-progress`). A map with `unlocked: true` is playable from the start: **Zero Point is temporarily unlocked** (remove that line in `src/data/maps/zeroPoint.ts` to restore the order). Each map lives in `src/data/maps/` and is listed in `LEVELS` (`src/data/levels.ts`). Every map has 15–40 waves and each later map introduces its own new enemy types, which only appear on that map and later ones (Jammers and Mirrors return on the later hero maps, 6 and 7).
+Seven maps, played in order from a **map select** screen; beating a map unlocks the next (saved in localStorage, key `td-progress`). A map with `unlocked: true` is playable from the start (none use it now; Zero Point was unlocked during development and was locked again for the App Store release). Each map lives in `src/data/maps/` and is listed in `LEVELS` (`src/data/levels.ts`). Every map has 15–40 waves and each later map introduces its own new enemy types, which only appear on that map and later ones (Jammers and Mirrors return on the later hero maps, 6 and 7).
 
 | # | Map | Waves | Road | New enemies | Start gold / lives |
 |---|---|---|---|---|---|
@@ -385,8 +385,9 @@ Neon-on-dark cyberpunk. Gameplay, numbers, and tower names are unchanged by the 
 - **Effects** use additive blending for a glow: tracers, halos, blasts, arcs.
 - **Neon palette:** element colors are Fire `#ff5a36`, Water `#00e5ff`, Wood `#39ff88`, Earth `#ffb020`, Metal `#c9d1ff`. UI accents: cyan `#00f0ff`, magenta `#ff2bd6`, gold `#ffe600`, red `#ff3864`.
 - **Layout:** a full-width **top bar**, then three columns: map, build menu (sidebar), tower info panel. The top bar's first line has the title, Lives/Gold/Wave, the Ready button, speed controls, and the mute icon; its second line has the battlefield on the left (name, boosted and weakened element; hover for the full rule) and the enemy list on the right ("Next wave 3/8" between waves, "Wave 3/8" during one), each enemy with count, element tag, and AIR tag. The sidebar holds only the build menu (lockdown notice, element picker, weapon cards, key help). Under 1180px the columns slim down, element tags show only the icon, and the battlefield modifiers wrap under its name. Under 900px the map spans the full width with build and info side by side below, and the top bar's controls get their own line. Under 560px everything stacks.
-- **UI:** dark translucent panels with cyan borders, glowing buttons, CRT scanlines over the playfield, a glitchy title. Fonts are **Orbitron** (headings, numbers) and **Share Tech Mono** (body), loaded from Google Fonts in `index.html` with system fallbacks, so the game still works offline, just with plainer fonts.
+- **UI:** dark translucent panels with cyan borders, glowing buttons, CRT scanlines over the playfield, a glitchy title. Fonts are **Orbitron** (headings, numbers) and **Share Tech Mono** (body), bundled in `src/fonts/` (`@font-face` in `style.css`), so they work offline and in the iOS app.
 - **Where colors live:** per-battlefield map colors in `src/data/battlefields.ts`; other canvas colors in `src/render/theme.ts`; element colors in `src/data/elements.ts`; enemy colors in `src/data/enemies.ts`; page UI colors as CSS variables in `src/style.css`. Keep the theme file and CSS variables in step.
+- **Logo** (`public/`): `logo-mark.svg` is a hexagonal neon shield (cyan → magenta) around the glowing hex data core, with the five element nodes on a pentagon (Wood top, then Fire, Earth, Metal, Water clockwise, the generating order). Lines join each element to the one it overcomes (Water → Fire → Metal → Wood → Earth → Water), each colored from one element to the other, and they form a pentagram, so the star is the game's weakness cycle. `logo.svg` adds the wordmark "NEON" (cyan) / "WARDENS" (magenta) in Orbitron and the tagline "GUARD THE DATA CORE". `favicon.svg` is a simpler, thicker version for small sizes and is the page icon in `index.html`.
 - **Wording:** level "Neon District", win "District secured", lose "Core breached", restart button "Reboot".
 
 ## Sound (built)
@@ -400,6 +401,18 @@ All sound effects are synthesized with the Web Audio API in `src/audio/Sound.ts`
 - **Browser rules:** the AudioContext is only created on the first click or key press.
 - **Mute:** speaker icon at the right end of the top bar (turns red with an × when muted) or `M`. The choice is saved in localStorage (`td-muted`) when storage is available.
 
+## Map score (built)
+
+Every run has a score, so players on the same map (or the same Daily Challenge) can see who did better. Numbers in `SCORE` (`src/data/score.ts`), rules in `Game` (`score`, `scoreTotal`, `checkWaveEnd`).
+
+- **Per cleared wave: 100 points**, plus **up to 100 speed points**. The speed clock starts when the wave's last enemy spawns (a wave can't be cleared earlier): clearing right then earns 100, falling linearly to 0 over the time the wave's slowest enemy needs to walk (or fly) its whole route. The speed points are multiplied by the share of the wave's enemies that were killed rather than leaked (released Shards and Drones count), so letting a wave run through scores nothing.
+- **Lives: −50 per life below the starting lives**, live (a restored life gives its points back). The total never goes below 0.
+- Game time, not wall time, so 1×/2×/3× and pausing don't change it. Measured with the balance bot: full Neon District ~2,600 (avg ~73 speed points a wave), a 7-tower build that wins with 5–7 lives ~1,750, Harbor Grid ~3,400, Zero Point ~4,500–4,700 (≈58 a wave: harder maps clear slower).
+- **UI:** a badge at the top left of the map ("SCORE 1,240"; hover or tap for the breakdown and the rule). After each clear a "+175 ⚡75" chip hangs under it for 4s; losing a life flashes it red. On narrow maps (container query on `#board`) the get-ready bar moves right of it. The end screen adds a Score block (waves, speed, lives lost, total) and "New best on this map!" or the best so far.
+- **Best per map** (campaign runs, `td-best` in localStorage, mirrored on iOS): score, lives left, waves held, win, and the hero's call sign. Map cards show "🏆 Best score 2,607 · 20 ♥ left · Leila".
+- Saved runs keep the score (`score` in the snapshot; older saves continue with 100 per wave already cleared).
+- **Future multiplayer:** the plan is several players, each with a hero, defending the same map and comparing scores. The score is a plain number from game state, ready to send to a shared leaderboard later; there's no backend yet.
+
 ## Save and resume (built)
 
 - A run is saved after every cleared wave, and also when the tab is hidden or closed and when the map menu opens, as long as it's between waves (`Game.snapshot()`: towers with level/spend/priority, gold, lives, hero position/level/kills, stats, the coming wave's battlefield and lockdown). Mid-wave progress isn't saved: a reload restarts the wave in progress from its start.
@@ -409,7 +422,7 @@ All sound effects are synthesized with the Web Audio API in `src/audio/Sound.ts`
 ## Daily Challenge (built)
 
 - One challenge per UTC day (`src/game/daily.ts`): the date seeds the map, the hero (on hero maps; no hero select), and every wave's battlefield and lockdown (`GameOptions.conditionsSeed`: each wave's roll depends only on the seed and wave number, so everyone gets the same conditions however their fights go). Combat randomness (crits, stuns) stays random.
-- Score = 100 per wave held + 50 per life left + 1000 for a win (`dailyScore`). The best today is kept in localStorage (`td-daily`).
+- Scored like any map (see Map score; `dailyScore` returns `game.scoreTotal`; it used to be 100 per wave + 50 per life left + 1000 for a win). The best today is kept in localStorage (`td-daily`).
 - UI: a magenta Daily Challenge card at the top of map select (date, map, hero, best today, Play daily / Continue / New attempt). Any map can be the daily, locked or not, and a daily win doesn't unlock campaign maps. The top bar reads "Daily 2026-10-08 · <map>". The end screen shows the score and best, and **Copy result** puts a short text (date, map, hero, result, score, link) on the clipboard to share.
 
 ## Languages (built)
@@ -417,9 +430,28 @@ All sound effects are synthesized with the Web Audio API in `src/audio/Sound.ts`
 English, Español, 中文 (Simplified Chinese), and Tiếng Việt, picked from a dropdown in the top bar (left of the mute button). The choice is saved in localStorage (`td-lang`); with nothing saved, the browser's language is used if we have it. Switching relabels everything live, mid-run included.
 
 - **How it works** (`src/i18n/`): the English text is the key. Wrap every player-facing string in `t('English text', { n })` with `{placeholders}` for numbers and names (`tr` in the renderer, where `t` is a local); data strings (tower, enemy, hero, map, combo names and descriptions) are wrapped where they're shown (`t(def.name)`). Each language is a dictionary `es.ts` / `zh.ts` / `vi.ts` from English to the translation; a missing key falls back to English. Static text in `index.html` uses `data-i18n` / `data-i18n-title` / `data-i18n-aria`; the help footer is built in `main.ts`.
-- **Adding text:** use `t()` with a plain string literal (both sides of a ternary are fine; template literals are not keys), then add the English → translation line to all three dictionaries. `tests/i18n.test.ts` collects every key (all `t()`/`tr()` calls in src, every name/description in the data, the index.html attributes; see `tests/i18nKeys.ts`) and fails on missing keys, mismatched placeholders, or stale keys. About 460 strings today.
+- **Adding text:** use `t()` with a plain string literal (both sides of a ternary are fine; template literals are not keys), then add the English → translation line to all three dictionaries. `tests/i18n.test.ts` collects every key (all `t()`/`tr()` calls in src, every name/description in the data, the index.html attributes; see `tests/i18nKeys.ts`) and fails on missing keys, mismatched placeholders, or stale keys. About 470 strings today.
 - **Fonts:** Orbitron and Share Tech Mono have no Vietnamese tone marks or Chinese characters, so for `vi` and `zh` the CSS font variables (`:root:lang(...)`) and the canvas fonts (`canvasFont` in `src/render/theme.ts`) switch to system fonts.
 - Hero names and call signs, the game title, and key names ([M], Space shown as is in English/Chinese) stay as they are. Translations were written by Claude and haven't been checked by native speakers yet.
+
+## iOS App and Touch (built)
+
+The game ships to iPhone and iPad as the same web build inside a native shell (**Capacitor 8**, Swift Package Manager, no CocoaPods). There's one codebase: every gameplay change reaches the web and the app.
+
+- **Workflow:** `npm run ios:sync` (builds `dist/` and copies it into `ios/App/App/public`), then `npm run ios:open` and press Run in Xcode (simulator, or your iPhone with a free Apple ID; the App Store needs a paid Apple Developer account). Config in `capacitor.config.ts` (app id `com.thiennguyen.neonwardens`, change it before publishing if you want another; dark background, no page bounce). The Xcode project in `ios/` is checked in; `ios/App/App/public` and generated config are git-ignored.
+- **Signing:** automatic, team `Q5NLGAD2WM` (the paid Apple Developer account), set in the Xcode project. `ITSAppUsesNonExemptEncryption = false` in Info.plist, so uploads skip the export-compliance question (the game uses no encryption beyond HTTPS).
+- **iOS project settings:** iPhone is landscape only and the status bar is hidden (`ios/App/App/Info.plist`); iPad allows every orientation. Minimum iOS 16 (the layout uses `:has()` and `dvh`). App icon (1024, no alpha) and launch screen (2732², logo + wordmark) were rendered from `public/logo-mark.svg` into `ios/App/App/Assets.xcassets`.
+- **Saves on iOS** (`src/platform/nativeStorage.ts`): the game still uses localStorage; in the app the `td-*` keys are mirrored into Capacitor Preferences (UserDefaults) after each save, at game end, and when the app is backgrounded, and copied back on launch if iOS cleared the web view's storage (`await restoreNativeStorage()` at the top of `main.ts`). No-op in a browser.
+- **Touch input** (`src/main.ts`, by `pointerType`; mouse behavior is unchanged): build = tap a weapon card, tap a pad to preview (ghost + range), tap the same pad again to build. Aimed hero abilities = tap the ability, tap to aim, tap the same spot (within 0.75 tiles) to fire. Tap the hero (or its portrait) to select it, then tap the map to move. **Long press (0.5s)** = right-click: cancel the tool, else walk the hero there. A **tool bar** over the bottom of the map shows what to do next ("Tap a pad to preview, tap it again to build") with a **Cancel** button (shown for mouse too). Weapon-card hover previews are mouse only. Tooltips (`data-tip`) show on tap for non-buttons (passive tile, hero-select ability lists) for 3s. The help footer switches to tap instructions on coarse pointers. No double-tap zoom, tap flash, or long-press callout on the map.
+- **Tablet layouts:** iPads held sideways (`(orientation: landscape) and (pointer: coarse) and (max-width: 1400px)`) share the phone's two-column layout (big map, build column, info floating over it with a ✕) but keep the full top bar with the battlefield and enemy list; the Ready label shrinks to fit. iPads held upright (`(orientation: portrait) and (max-width: 1100px)`) use the stacked small-screen layout (map full width, build and info side by side below). Checked at iPad Pro 13", Air 11", and mini sizes, with a hero map too.
+- **Phone layout** (`@media (orientation: landscape) and (max-height: 520px)` in `style.css`, on top of the shared two-column rules): one slim top bar (stats, Ready, speed, buttons; no title or wave-info line), the map as big as the height allows (`--chrome` = height used around it, larger with a hero bar), and the build menu in a right column (no descriptions, lockdown notice, or help). The info panel floats over the build menu only while a tower or the hero is selected, with a ✕ (`data-kind` on `#info-panel`). Hero abilities are bare clocks. The end screen covers the whole screen. Safe-area insets (notch, Dynamic Island, home bar) pad the page and the full-screen menus (`viewport-fit=cover`). Phones held upright get "Turn your phone sideways for a bigger map." and the stacked layout.
+- **Fonts** are bundled (`src/fonts/`, latin subsets of Orbitron and Share Tech Mono, SIL OFL with license files), so the app works offline; Google Fonts is no longer loaded.
+- **Privacy policy and support pages** (`public/privacy.html`, `public/support.html`, styled by `public/pages.css`): plain pages shipped with the site and inside the app. Live at https://lonelystar1404.github.io/Tower-Defense/privacy.html and …/support.html. Contact: lonelystar1404@gmail.com and the repo's GitHub Issues. Apple requires the policy to be reachable in the app: the map select screen has "Privacy policy · Support" links at the bottom (each page links back to the game). Update the policy (and its date) before adding anything that collects data (accounts, online leaderboards).
+- **App Store listing** (`appstore/listing.md`): name, subtitle, categories, promotional text, keywords, description, review notes, URLs, all within Apple's limits. **Screenshots** in `appstore/screenshots/` (iPhone 6.9" 2868×1320 and iPad 13" 2752×2064, five scenes: battle, hero, boss, tower details, map select), captured from the real game by `scripts/appstore-screenshots.mjs` (Chrome DevTools protocol with device emulation and touch; setup steps at the top of the script).
+- **Released builds:** 1.0 (1) uploaded to App Store Connect on 2026-10-08 (Zero Point locked). Every upload needs a higher build number (Xcode → General → Build).
+- **Daily share text** leaves out the link when the page isn't on http(s) (in the app it would be `capacitor://localhost`).
+- Verified: driven in Chrome with phone emulation and real touch events (build, select/close, long-press cancel, hero move, end screen, portrait, desktop unchanged) and run in the iPhone 17 simulator (launches in landscape, fonts, safe areas, Preferences bridge).
+- Not done yet: App Store listing, signing, screenshots; haptics; a smaller-phone pass (iPhone SE landscape is 667×375: it fits but is tight).
 
 ## Game Modes & Progression (TBD)
 
@@ -433,9 +465,10 @@ English, Español, 中文 (Simplified Chinese), and Tiếng Việt, picked from 
 - **Rendering:** plain **HTML5 Canvas**, no game engine. Towers and enemies are vector shapes drawn in code (`src/render/sprites.ts`).
 - **Tests:** **Vitest**.
 - **Data-driven balance:** all towers, elements, weapon types, enemies, and waves live in `src/data/`, not in game logic, so tuning numbers never needs a code change.
-- **Save data:** `localStorage`, no backend: map progress (`td-progress`), saved runs (`td-saves`), daily best (`td-daily`), last hero (`td-hero`), mute (`td-muted`).
+- **Save data:** `localStorage`, no backend: map progress (`td-progress`), saved runs (`td-saves`), daily best (`td-daily`), best score per map (`td-best`), last hero (`td-hero`), mute (`td-muted`).
 - **Hosting:** any static host (GitHub Pages, Netlify, Vercel). `.github/workflows/deploy.yml` builds and publishes `dist/` to GitHub Pages on every push to `main` (Pages source must be set to "GitHub Actions" in the repo settings).
-- **Runtime dependencies:** none. Dev dependencies: `typescript`, `vite`, `vitest`.
+- **Runtime dependencies:** `@capacitor/core` and `@capacitor/preferences` (only used inside the iOS app; a no-op on the web). Dev dependencies: `typescript`, `vite`, `vitest`, `@capacitor/cli`, `@capacitor/ios`.
+- **iOS:** Capacitor 8 wraps `dist/` in a native app (`ios/`, see iOS App and Touch).
 
 ## Commands
 
@@ -444,6 +477,8 @@ npm install      # once
 npm run dev      # dev server at http://localhost:5173
 npm test         # unit + balance tests
 npm run build    # type-check and build to dist/
+npm run ios:sync # build and copy into the iOS app
+npm run ios:open # open the iOS project in Xcode (then Run)
 ```
 
 ## Project Structure
@@ -461,6 +496,13 @@ index.html          - page shell: canvas, sidebar HUD, game-over overlay
   /render           - Renderer (canvas, background cache, effects), sprites (tower art), theme (canvas palette)
   /ui               - Hud (top bar, build menu, overlays), InfoPanel (tower/hero details), HeroBar, HeroSelect, MapMenu (map select, daily card), progress (unlocks), saves (saved runs, daily best)
   /audio            - synthesized sound effects
+  /platform         - nativeStorage (iOS: mirror saves into app preferences)
+  /fonts            - bundled Orbitron + Share Tech Mono (OFL)
+/ios                - Capacitor iOS project (Xcode: ios/App/App.xcodeproj)
+/public             - logo, favicon, privacy.html, support.html, pages.css (copied as-is into dist/)
+/appstore           - App Store listing text and screenshots
+/scripts            - appstore-screenshots.mjs + cdp.mjs (Chrome DevTools driver)
+capacitor.config.ts - app id, name, web dir, iOS options
 /tests              - damage, path, targeting, game rules, and a headless balance simulation
 ```
 
@@ -489,7 +531,8 @@ Game logic works in **tile units** (tile (c, r) has its center at (c + 0.5, r + 
 
 ## Open Questions (edit me)
 
-- Mobile/touch support in v1?
+- ~~Mobile/touch support in v1?~~ Done: touch input, phone layout, iOS app (see iOS App and Touch).
+- Android app (Capacitor supports it with the same setup)?
 
 ## Current State (as of 2026-10-08)
 
@@ -526,9 +569,9 @@ The first playable is built and verified in a browser. Summary of what exists:
 - Targeting filters by ground/air. `Enemy.speed` already includes slows and stops, so the Mortar leads chilled enemies correctly.
 - The game runs at a fixed 60 Hz step, so game speed doesn't change outcomes. Randomness is injectable for deterministic tests.
 
-**Tests** (190, all passing; ~140s, of which most is every hero map played with all ten heroes; mostly full-map balance sims): element combos (each of the five, Steam splash, Wildfire spread), stats without overkill, heroes (ten complete profiles, each roster covering all five elements, weakness-cycle damage, second roster locked until Core Nexus, each passive: Execution finishes weakened enemies but not bosses, Undertow slows only nearby enemies, Field Engineer and Power Surge boost tower damage, Core Patch restores lives up to the start, Overgrowth roots and poisons, Bounty pays +30%, chosen hero on the map, walking speed, attacks skip Mirrors, melee cleave, magic chain, leveling and unlocks, Jammer pausing cooldowns, each hero's signature abilities), every hero map (maps 3–7) won with every hero (1 seed each), Zero Point unlocked, new abilities (shield absorbs and blocks effects, medic heals in range, splitter releases shards, ghost hidden/revealed and splash-able, phaser blinks but not while stunned, carrier launches drones, disruptor knocks towers offline and waits for one in reach, prism cycles elements, burrower immune and untargetable while under and can't dig while stunned, warden armor aura), translations (every key present in Spanish, Chinese, and Vietnamese with matching placeholders, no stale keys), bosses (one per map in the final wave, phases start once at their thresholds, several after one big hit, escorts, cleanse keeps armor break, new shields, element shifts, arrival sound), save and resume (nothing to save before wave 1 or mid-wave; towers, gold, lives, conditions, stats, and the hero survive a JSON round trip), Daily Challenge (same per UTC day, different between days, conditions fixed by the seed whatever the combat rng, score), obstacles (block building; in bounds and off the road on every map), every map from Chrome Canyon on has a hero, random on maps 3–5 and chosen after (and none before), maps (15–40 waves, valid roads, new enemies per map), unlock progress, per-map balance, wave rewardMult, sound events (queued for build/upgrade/sell and a whole wave, countdown ticks, queue cap), get-ready countdown (none before wave 1, 30s after a clear, auto-start at 0, Ready skips it, off with prepTime 0 and after the last wave), enemy elements (defaults, group overrides, weakness ±), battlefields (re-rolled each wave without repeats, ±5% for towers and enemies), lockdown (70% locked, exact share at any fraction, minimums per weapon and element, deterministic per seed, re-rolled after a wave, locked combos can't be built, built towers keep firing but can't upgrade while locked), map hpScale, easy first map (16 towers win Neon District; no lockdown there, 70% on every later map), upgrades (cost, stats, max level, refund, stronger effects, slow cap), damage formula, weakness cycle, path math, targeting priorities, multi-target and chain selection, each weapon's behavior, flyers and anti-air, every status effect's stacking/refresh/immunity rules, burn kills paying gold, freeze stopping movement, armor break raising damage, build/sell economy, wave flow, lives/game over, and the headless balance simulation.
+**Tests** (196, all passing; ~140s, of which most is every hero map played with all ten heroes; mostly full-map balance sims): map score (speed points formula, fast vs slow clears, leaks cost points and earn no speed, floor at 0, save/resume), element combos (each of the five, Steam splash, Wildfire spread), stats without overkill, heroes (ten complete profiles, each roster covering all five elements, weakness-cycle damage, second roster locked until Core Nexus, each passive: Execution finishes weakened enemies but not bosses, Undertow slows only nearby enemies, Field Engineer and Power Surge boost tower damage, Core Patch restores lives up to the start, Overgrowth roots and poisons, Bounty pays +30%, chosen hero on the map, walking speed, attacks skip Mirrors, melee cleave, magic chain, leveling and unlocks, Jammer pausing cooldowns, each hero's signature abilities), every hero map (maps 3–7) won with every hero (1 seed each), new abilities (shield absorbs and blocks effects, medic heals in range, splitter releases shards, ghost hidden/revealed and splash-able, phaser blinks but not while stunned, carrier launches drones, disruptor knocks towers offline and waits for one in reach, prism cycles elements, burrower immune and untargetable while under and can't dig while stunned, warden armor aura), translations (every key present in Spanish, Chinese, and Vietnamese with matching placeholders, no stale keys), bosses (one per map in the final wave, phases start once at their thresholds, several after one big hit, escorts, cleanse keeps armor break, new shields, element shifts, arrival sound), save and resume (nothing to save before wave 1 or mid-wave; towers, gold, lives, conditions, stats, and the hero survive a JSON round trip), Daily Challenge (same per UTC day, different between days, conditions fixed by the seed whatever the combat rng, score), obstacles (block building; in bounds and off the road on every map), every map from Chrome Canyon on has a hero, random on maps 3–5 and chosen after (and none before), Zero Point locked until Orbital Spire is cleared, maps (15–40 waves, valid roads, new enemies per map), unlock progress, per-map balance, wave rewardMult, sound events (queued for build/upgrade/sell and a whole wave, countdown ticks, queue cap), get-ready countdown (none before wave 1, 30s after a clear, auto-start at 0, Ready skips it, off with prepTime 0 and after the last wave), enemy elements (defaults, group overrides, weakness ±), battlefields (re-rolled each wave without repeats, ±5% for towers and enemies), lockdown (70% locked, exact share at any fraction, minimums per weapon and element, deterministic per seed, re-rolled after a wave, locked combos can't be built, built towers keep firing but can't upgrade while locked), map hpScale, easy first map (16 towers win Neon District; no lockdown there, 70% on every later map), upgrades (cost, stats, max level, refund, stronger effects, slow cap), damage formula, weakness cycle, path math, targeting priorities, multi-target and chain selection, each weapon's behavior, flyers and anti-air, every status effect's stacking/refresh/immunity rules, burn kills paying gold, freeze stopping movement, armor break raising damage, build/sell economy, wave flow, lives/game over, and the headless balance simulation.
 
-**Known gaps:** no endless mode, no music (sound effects only), no level-3 upgrade branches, no touch input, saves only between waves. The folder is a git repository (branch `main`) but has no commits or remote yet.
+**Known gaps:** no endless mode, no music (sound effects only), no level-3 upgrade branches, saves only between waves, iOS app not yet signed or on the App Store. The folder is a git repository (branch `main`) but has no commits or remote yet.
 
 ## Roadmap
 
@@ -547,7 +590,7 @@ Done:
 - 15 waves (was 8), cheaper/stronger upgrades, half kill gold in waves 9–15, balance bot that upgrades.
 - 25 waves (waves 16–25 added, kill gold ×0.4 there).
 - 30 waves (waves 26–30 added, kill gold ×0.35 there); balance bot upgrades once its map is full.
-- Map 5 Zero Point (30 waves) with a hero (4 level-unlocked abilities, cooldowns only, levels from nearby kills) and two new enemies (Jammer, Mirror); temporarily unlocked.
+- Map 5 Zero Point (30 waves) with a hero (4 level-unlocked abilities, cooldowns only, levels from nearby kills) and two new enemies (Jammer, Mirror).
 - Five playable heroes with profiles (Vex, Brick, Leila, Arjun, Echo), hero select screen, data-driven ability effects, per-hero art, icons, and colors.
 - Language picker: English, Spanish, Chinese, Vietnamese, with a test that every string is translated.
 - Second hero roster unlocked by clearing Core Nexus, each with a passive: Ronin (Execution), Tide (Undertow), Forge (Field Engineer, Power Surge, Core Patch), Rua (Overgrowth), Flare (Bounty).
@@ -558,6 +601,9 @@ Done:
 
 - Bosses (Siege Colossus, Bulwark, Chimera, Sky Leviathan) with HP phases in every map's final wave; save and resume between waves; Daily Challenge with a shareable score.
 - 70% lockdown that also blocks upgrades, element badges showing available towers, weapon rebalance (Chain/Mortar down, Multi-Shot/Sniper up) from a fixed benchmark, hero pass (Leila and Brick up, Arjun's Firewall down), per-map `hpScale` with easy first two maps.
+
+- Map score (waves, clear speed, lives) shown on the map, best score per map, used by the Daily Challenge too.
+- Logo (`public/`), touch input (tap to preview / tap again to confirm, long press = right-click, tool bar with Cancel), a phone-landscape layout, bundled fonts, and an iOS app with Capacitor (landscape, app icon, launch screen, saves mirrored to app preferences).
 
 Not started:
 - Level-3 upgrade branches.

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 256" width="900" height="256" role="img" aria-label="Neon Wardens">
+  <title>Neon Wardens</title>
+  <style>@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@800&amp;family=Share+Tech+Mono&amp;display=swap');
+    .w { font-family: Orbitron, 'Eurostile', 'Arial Black', sans-serif; font-weight: 800; letter-spacing: 6px; }
+    .t { font-family: 'Share Tech Mono', ui-monospace, Menlo, monospace; letter-spacing: 7px; }</style>
+  <rect width="900" height="256" rx="28" fill="#07071a"/>
+  <g transform="translate(14 14) scale(0.89)"><defs>
+    <linearGradient id="frame" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00f0ff"/><stop offset="1" stop-color="#ff2bd6"/></linearGradient>
+    <radialGradient id="core" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#ffffff"/><stop offset="0.45" stop-color="#7ff8ff"/><stop offset="1" stop-color="#00c8e0"/></radialGradient>
+    <radialGradient id="bg" cx="0.5" cy="0.5" r="0.6"><stop offset="0" stop-color="#1a1440"/><stop offset="1" stop-color="#07071a"/></radialGradient>
+    <linearGradient id="g-water-fire" gradientUnits="userSpaceOnUse" x1="57.6" y1="105.1" x2="198.4" y2="105.1"><stop offset="0" stop-color="#00e5ff"/><stop offset="1" stop-color="#ff5a36"/></linearGradient><linearGradient id="g-fire-metal" gradientUnits="userSpaceOnUse" x1="198.4" y1="105.1" x2="84.5" y2="187.9"><stop offset="0" stop-color="#ff5a36"/><stop offset="1" stop-color="#c9d1ff"/></linearGradient><linearGradient id="g-metal-wood" gradientUnits="userSpaceOnUse" x1="84.5" y1="187.9" x2="128.0" y2="54.0"><stop offset="0" stop-color="#c9d1ff"/><stop offset="1" stop-color="#39ff88"/></linearGradient><linearGradient id="g-wood-earth" gradientUnits="userSpaceOnUse" x1="128.0" y1="54.0" x2="171.5" y2="187.9"><stop offset="0" stop-color="#39ff88"/><stop offset="1" stop-color="#ffb020"/></linearGradient><linearGradient id="g-earth-water" gradientUnits="userSpaceOnUse" x1="171.5" y1="187.9" x2="57.6" y2="105.1"><stop offset="0" stop-color="#ffb020"/><stop offset="1" stop-color="#00e5ff"/></linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <polygon points="128.0,16.0 225.0,72.0 225.0,184.0 128.0,240.0 31.0,184.0 31.0,72.0" fill="url(#bg)" stroke="url(#frame)" stroke-width="7" stroke-linejoin="round" filter="url(#glow)"/>
+  <polygon points="128.0,28.0 214.6,78.0 214.6,178.0 128.0,228.0 41.4,178.0 41.4,78.0" fill="none" stroke="#00f0ff" stroke-opacity="0.25" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <g stroke="url(#frame)" stroke-width="4" stroke-linecap="round" opacity="0.9"><line x1="128.0" y1="24.0" x2="128.0" y2="10.0"/><line x1="218.1" y1="76.0" x2="230.2" y2="69.0"/><line x1="218.1" y1="180.0" x2="230.2" y2="187.0"/><line x1="128.0" y1="232.0" x2="128.0" y2="246.0"/><line x1="37.9" y1="180.0" x2="25.8" y2="187.0"/><line x1="37.9" y1="76.0" x2="25.8" y2="69.0"/></g>
+  <g fill="none" stroke-width="5" stroke-linecap="round" filter="url(#glow)"><line x1="57.6" y1="105.1" x2="198.4" y2="105.1" stroke="url(#g-water-fire)"/><line x1="198.4" y1="105.1" x2="84.5" y2="187.9" stroke="url(#g-fire-metal)"/><line x1="84.5" y1="187.9" x2="128.0" y2="54.0" stroke="url(#g-metal-wood)"/><line x1="128.0" y1="54.0" x2="171.5" y2="187.9" stroke="url(#g-wood-earth)"/><line x1="171.5" y1="187.9" x2="57.6" y2="105.1" stroke="url(#g-earth-water)"/></g>
+  <polygon points="128.0,103.0 149.7,115.5 149.7,140.5 128.0,153.0 106.3,140.5 106.3,115.5" fill="#07071a" stroke="#00f0ff" stroke-width="3" filter="url(#glow)"/>
+  <polygon points="128.0,113.0 141.0,120.5 141.0,135.5 128.0,143.0 115.0,135.5 115.0,120.5" fill="url(#core)" filter="url(#glow)"/>
+  <g filter="url(#glow)"><g><circle cx="128.0" cy="54.0" r="14" fill="#0b0c1f" stroke="#39ff88" stroke-width="4"/><circle cx="128.0" cy="54.0" r="5.5" fill="#39ff88"/></g><g><circle cx="198.4" cy="105.1" r="14" fill="#0b0c1f" stroke="#ff5a36" stroke-width="4"/><circle cx="198.4" cy="105.1" r="5.5" fill="#ff5a36"/></g><g><circle cx="171.5" cy="187.9" r="14" fill="#0b0c1f" stroke="#ffb020" stroke-width="4"/><circle cx="171.5" cy="187.9" r="5.5" fill="#ffb020"/></g><g><circle cx="84.5" cy="187.9" r="14" fill="#0b0c1f" stroke="#c9d1ff" stroke-width="4"/><circle cx="84.5" cy="187.9" r="5.5" fill="#c9d1ff"/></g><g><circle cx="57.6" cy="105.1" r="14" fill="#0b0c1f" stroke="#00e5ff" stroke-width="4"/><circle cx="57.6" cy="105.1" r="5.5" fill="#00e5ff"/></g></g></g>
+  <g filter="url(#glow)">
+    <text class="w" x="262" y="120" font-size="66" fill="#00f0ff">NEON</text>
+    <text class="w" x="262" y="190" font-size="66" fill="#ff2bd6">WARDENS</text>
+  </g>
+  <line x1="264" y1="214" x2="860" y2="214" stroke="url(#frame)" stroke-width="2" opacity="0.6"/>
+  <text class="t" x="264" y="240" font-size="17" fill="#c9d1ff" opacity="0.8">GUARD THE DATA CORE</text>
+</svg>
