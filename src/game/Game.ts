@@ -59,10 +59,9 @@ export type GameSound =
   | 'tick' | 'tick-final'
   /** Enemy abilities */
   | 'shield-break' | 'heal' | 'blink' | 'split' | 'launch' | 'disrupt' | 'shift' | 'burrow'
-  /** Heroes */
-  | 'hero-shot' | 'hero-punch' | 'hero-zap' | 'level-up'
-  | 'pulse-blast' | 'emp' | 'cryo' | 'firewall' | 'orbital-call' | 'orbital-impact'
-  | 'leap' | 'buff' | 'pierce' | 'mark' | 'chain' | 'time-lock' | 'summon' | 'overclock' | 'knockback'
+  /** Heroes: attacks, level-ups, and one sound per ability (`ability:<id>`, plus `impact:<id>` when a strike lands) */
+  | 'hero-shot' | 'hero-punch' | 'hero-zap' | 'level-up' | 'combustion'
+  | `ability:${string}` | `impact:${string}`
   /** Element combos */
   | 'combo'
   /** Bosses: arrival and each new phase */
@@ -105,6 +104,8 @@ export interface Strike {
   delay: number;
   /** The full delay, for the countdown clock. */
   maxDelay: number;
+  /** Ability that called it (its impact sound). */
+  ability: string;
 }
 
 /** A temporary turret placed by a hero (Echo's drones). */
@@ -883,18 +884,15 @@ export class Game {
         this.effects.push({ kind: 'pulse', x, y, radius: eff.radius, ttl: 0.5, maxTtl: 0.5, color });
         if (eff.stun) this.effects.push({ kind: 'shake', x: 0, y: 0, ttl: 0.15, maxTtl: 0.15, color: '' });
         else this.effects.push({ kind: 'blast', x, y, radius: eff.radius, element: 'water', ttl: 0.4, maxTtl: 0.4, color });
-        this.sound(eff.stun ? 'emp' : 'pulse-blast');
         break;
       case 'zone':
         this.zones.push({
           x, y, radius: eff.radius, ttl: eff.duration, maxTtl: eff.duration, color,
           slow: eff.slow, dps: eff.dps ? eff.dps * m : undefined, armorBreak: eff.armorBreak, stripShields: eff.stripShields,
         });
-        this.sound(eff.slow ? 'cryo' : 'firewall');
         break;
       case 'strike':
-        this.strikes.push({ x, y, radius: eff.radius, damage: eff.damage * m, delay: eff.delay, maxDelay: eff.delay });
-        this.sound('orbital-call');
+        this.strikes.push({ x, y, radius: eff.radius, damage: eff.damage * m, delay: eff.delay, maxDelay: eff.delay, ability: def.id });
         break;
       case 'dash':
         this.effects.push({
@@ -906,14 +904,12 @@ export class Game {
         for (const e of this.heroTargetsWithin(x, y, eff.radius)) this.heroDamage(e, eff.damage * m);
         this.effects.push({ kind: 'blast', x, y, radius: eff.radius, element: 'fire', ttl: 0.4, maxTtl: 0.4, color });
         this.effects.push({ kind: 'shake', x: 0, y: 0, ttl: 0.15, maxTtl: 0.15, color: '' });
-        this.sound('leap');
         break;
       case 'buff':
         hero.buffTime = eff.duration;
         hero.buffAttackSpeed = eff.attackSpeed;
         hero.buffDamage = eff.damage;
         this.effects.push({ kind: 'pulse', x: hero.x, y: hero.y, radius: 0.9, ttl: 0.4, maxTtl: 0.4, color });
-        this.sound('buff');
         break;
       case 'pierce': {
         const len = Math.hypot(x - hero.x, y - hero.y) || 1;
@@ -930,7 +926,6 @@ export class Game {
           kind: 'beam', x: hero.x, y: hero.y, points: [{ x: hero.x, y: hero.y }, { x: ex, y: ey }],
           element: 'metal', ttl: 0.3, maxTtl: 0.3, color,
         });
-        this.sound('pierce');
         break;
       }
       case 'mark':
@@ -939,9 +934,8 @@ export class Game {
           e.markAmp = eff.amp;
         }
         this.effects.push({ kind: 'pulse', x, y, radius: eff.radius, ttl: 0.5, maxTtl: 0.5, color });
-        this.sound('mark');
         break;
-      case 'execute': {
+      case 'snipe': {
         const targets = this.enemies
           .filter((e) => e.alive && e.def.ability?.kind !== 'mirror')
           .sort((a, b) => b.hp - a.hp)
@@ -953,7 +947,6 @@ export class Game {
           });
           this.heroDamage(e, eff.damage * m);
         }
-        this.sound('pierce');
         break;
       }
       case 'knockback':
@@ -965,7 +958,6 @@ export class Game {
           this.heroDamage(e, eff.damage * m);
         }
         this.effects.push({ kind: 'pulse', x, y, radius: eff.radius, ttl: 0.6, maxTtl: 0.6, color });
-        this.sound('knockback');
         break;
       case 'chain': {
         const near = this.heroTargetsWithin(x, y, 1.5).sort(
@@ -983,7 +975,6 @@ export class Game {
           if (eff.stripShields) e.shield = 0;
           this.heroDamage(e, eff.damage * m * (1 - eff.falloff) ** i);
         });
-        this.sound('chain');
         break;
       }
       case 'freeze-all':
@@ -993,7 +984,6 @@ export class Game {
           this.heroDamage(e, eff.damage * m);
         }
         this.effects.push({ kind: 'pulse', x: hero.x, y: hero.y, radius: 6, ttl: 0.8, maxTtl: 0.8, color });
-        this.sound('time-lock');
         break;
       case 'summon':
         for (let i = 0; i < eff.count; i++) {
@@ -1006,7 +996,6 @@ export class Game {
             range: eff.range, cooldown: 0, angle: 0,
           });
         }
-        this.sound('summon');
         break;
       case 'repair': {
         const healed = Math.min(eff.lives, this.level.lives - this.lives);
@@ -1014,7 +1003,6 @@ export class Game {
         const core = this.path.points[this.path.points.length - 1];
         this.effects.push({ kind: 'pulse', x: core.x, y: core.y, radius: 1.5, ttl: 0.7, maxTtl: 0.7, color });
         this.addText(core.x, core.y - 0.6, healed > 0 ? `+${healed} ♥` : t('CORE OK'), '#7dffc0');
-        this.sound('heal');
         break;
       }
       case 'tower-boost':
@@ -1025,9 +1013,9 @@ export class Game {
           t.boostDamage = eff.damage ?? 1;
         }
         this.effects.push({ kind: 'pulse', x, y, radius: eff.radius, ttl: 0.5, maxTtl: 0.5, color });
-        this.sound('overclock');
         break;
     }
+    this.sound(`ability:${def.id}`);
     hero.cooldowns[slot] = def.cooldown * hero.cooldownMult;
     hero.effects[slot] = hero.effectLengths[slot] = effectLength(eff);
     return true;
@@ -1166,6 +1154,8 @@ export class Game {
     // Headshot: crits hit harder than the usual 2× (the formula doubles; this scales the base).
     const p = this.hero?.def.passive?.effect;
     if (crit && p?.kind === 'crit-mult') base *= p.mult / 2;
+    // Finisher: wounded enemies take extra damage (it never kills outright).
+    if (p?.kind === 'finisher' && enemy.hp <= enemy.maxHp * p.threshold) base *= 1 + p.bonus;
     const dmg = computeDamage({
       base, elementMult: this.heroElementMult(enemy), crit, armor: enemy.armor,
       armorBreak: enemy.status.armorBreak, armorPierce: atk?.armorPierce ?? 0,
@@ -1175,18 +1165,12 @@ export class Game {
     if (!enemy.alive) this.reward(enemy, HERO_SOURCE);
   }
 
-  /** Passives that trigger on a hero hit that didn't kill: Execution and Overgrowth. */
+  /** Passives that trigger on a hero hit that didn't kill: Overgrowth. */
   private heroOnHit(enemy: Enemy, dmg: number): void {
     const hero = this.hero!;
     const p = hero.def.passive?.effect;
     if (!p || enemy.shield > 0) return;
-    if (p.kind === 'execute' && !isBoss(enemy.def) && enemy.hp <= enemy.maxHp * p.threshold) {
-      this.track('damage', HERO_SOURCE, enemy.takeDamage(enemy.hp / (enemy.markTime > 0 ? 1 + enemy.markAmp : 1)));
-      if (this.time - enemy.lastMatchupPopup > 0.6) {
-        enemy.lastMatchupPopup = this.time;
-        this.addText(enemy.x, enemy.y - 0.5, t('EXECUTE'), hero.def.color);
-      }
-    } else if (p.kind === 'element-hits') {
+    if (p.kind === 'element-hits') {
       applyElementEffect(enemy.status, hero.def.element, dmg, enemy.movement, this.rng, p.power);
     }
   }
@@ -1225,7 +1209,7 @@ export class Game {
       for (const e of this.heroTargetsWithin(s.x, s.y, s.radius)) this.heroDamage(e, s.damage);
       this.effects.push({ kind: 'blast', x: s.x, y: s.y, radius: s.radius, element: 'fire', ttl: 0.6, maxTtl: 0.6, color: '' });
       this.effects.push({ kind: 'shake', x: 0, y: 0, ttl: 0.3, maxTtl: 0.3, color: '' });
-      this.sound('orbital-impact');
+      this.sound(`impact:${s.ability}`);
     }
     this.strikes = this.strikes.filter((s) => s.delay > 0);
   }
@@ -1252,6 +1236,7 @@ export class Game {
       this.bursting = true;
       for (const e of this.heroTargetsWithin(enemy.x, enemy.y, burst.radius)) if (e !== enemy) this.heroDamage(e, burst.damage * this.hero!.damageMult);
       this.effects.push({ kind: 'blast', x: enemy.x, y: enemy.y, radius: burst.radius, element: 'fire', ttl: 0.3, maxTtl: 0.3, color: '' });
+      this.sound('combustion');
       this.bursting = false;
     }
     this.track('kills', source);

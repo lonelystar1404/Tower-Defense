@@ -331,21 +331,28 @@ describe('Second roster (passives)', () => {
     expect(isHeroUnlocked(HEROES.vex, { cleared: [] })).toBe(true);
   });
 
-  it('Execution (Ronin) finishes a weakened enemy, but not a boss', () => {
-    // Distance 6 on the corridor puts an enemy one tile from the hero.
-    const g = game('kaito', () => 1, 1);
-    const e = place(g, 'brute', 6);
-    freeze(e);
-    e.hp = e.maxHp * 0.12 + 5;
-    run(g, 1.5);
-    expect(e.alive).toBe(false);
-    const g2 = game('kaito', () => 1, 1);
-    const boss = place(g2, 'colossus', 6, 1);
-    freeze(boss);
-    boss.phase = 2;
-    boss.hp = boss.maxHp * 0.1;
-    run(g2, 1);
-    expect(boss.alive).toBe(true);
+  it('Finisher (Ronin) hits wounded enemies harder, and never kills outright', () => {
+    const p = HEROES.kaito.passive!.effect as { bonus: number };
+    const hit = (fraction: number) => {
+      const g = game('kaito', () => 1, 1);
+      const e = place(g, 'runner', 6); // no armor, so the ratio is exact
+      freeze(e);
+      e.hp = e.maxHp * fraction;
+      const before = e.hp;
+      run(g, 0.05);
+      return { dealt: before - e.hp, alive: e.alive };
+    };
+    const healthy = hit(0.9);
+    const wounded = hit(0.25);
+    expect(wounded.dealt / healthy.dealt).toBeCloseTo(1 + p.bonus, 1);
+    expect(wounded.alive).toBe(true);
+  });
+
+  it('no hero skill kills regardless of HP: every effect kind deals a set amount of damage', () => {
+    for (const id of HERO_IDS) {
+      expect(HEROES[id].passive?.effect.kind, id).not.toBe('execute');
+      for (const ab of HEROES[id].abilities) expect(ab.effect.kind, ab.id).not.toBe('execute');
+    }
   });
 
   it('Undertow (Tide) slows enemies near her only', () => {
@@ -355,7 +362,7 @@ describe('Second roster (passives)', () => {
     const far = place(g, 'grunt', hero.x + 5);
     near.hp = far.hp = 1e9;
     g.update(STEP);
-    expect(near.speed).toBeCloseTo(ENEMIES.grunt.speed * 0.75);
+    expect(near.speed).toBeCloseTo(ENEMIES.grunt.speed * (1 - (HEROES.nalani.passive!.effect as { slow: number }).slow));
     expect(far.speed).toBeCloseTo(ENEMIES.grunt.speed);
   });
 
@@ -415,17 +422,18 @@ describe('First roster passives', () => {
     }
   });
 
-  it('Spotter Uplink (Vex): enemies near her take 12% more damage, from anything', () => {
+  it('Spotter Uplink (Vex): enemies near her take more damage, from anything', () => {
+    const amp = (HEROES.vex.passive!.effect as { amp: number }).amp;
     const g = game('vex', () => 1, 1);
     const near = place(g, 'grunt', 6);
     const far = place(g, 'grunt', 12);
     freeze(near, far);
     g.update(STEP);
-    expect(near.auraAmp).toBeCloseTo(0.12);
+    expect(near.auraAmp).toBeCloseTo(amp);
     expect(far.auraAmp).toBe(0);
     const before = near.hp;
     near.takeDamage(100);
-    expect(before - near.hp).toBeCloseTo(112);
+    expect(before - near.hp).toBeCloseTo(100 * (1 + amp));
   });
 
   it('Aftershock (Brick): every third punch stuns what it hits', () => {
@@ -479,5 +487,21 @@ describe('First roster passives', () => {
     const far = g.build(12, 4, { weapon: 'cannon', element: 'metal' })!;
     expect(g.towerRateMult(near)).toBeCloseTo(1.15);
     expect(g.towerRateMult(far)).toBe(1);
+  });
+});
+
+describe('Ability sounds', () => {
+  it('every ability has its own cast sound, strikes an impact sound, and casting queues it', async () => {
+    const { HERO_SOUNDS } = await import('../src/audio/Sound');
+    for (const id of HERO_IDS) {
+      for (const ab of HEROES[id].abilities) {
+        expect(HERO_SOUNDS[`ability:${ab.id}`], ab.id).toBeDefined();
+        if (ab.effect.kind === 'strike') expect(HERO_SOUNDS[`impact:${ab.id}`], ab.id).toBeDefined();
+      }
+    }
+    const g = game('vex');
+    g.drainSounds();
+    g.castHero(0, g.hero!.x + 1, g.hero!.y);
+    expect(g.drainSounds()).toContain('ability:vex-pulse');
   });
 });

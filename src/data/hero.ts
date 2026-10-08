@@ -30,8 +30,8 @@ export type HeroEffect =
   | { kind: 'pierce'; length: number; width: number; damage: number }
   /** Enemies within `radius` take `amp` more damage from everything for `duration` s. */
   | { kind: 'mark'; radius: number; duration: number; amp: number }
-  /** Hit the `count` toughest enemies anywhere on the map. */
-  | { kind: 'execute'; count: number; damage: number }
+  /** Hit the `count` toughest enemies anywhere on the map (fixed damage; never an instant kill). */
+  | { kind: 'snipe'; count: number; damage: number }
   /** Throw enemies within `radius` back `distance` tiles along their route. */
   | { kind: 'knockback'; radius: number; distance: number; damage: number }
   /** Lightning from the enemy nearest the spot, jumping up to `jumps` times, −`falloff` each jump. */
@@ -47,7 +47,8 @@ export type HeroEffect =
 
 /**
  * Always-on hero effects (rules in `Game`: heroDamage, updateHero, hit, reward):
- * - execute: the hero's hits finish non-boss enemies left at or below `threshold` of max HP.
+ * - finisher: the hero's hits deal `bonus` more damage to enemies at or below `threshold` of max HP.
+ *   (No skill kills outright regardless of HP: everything deals damage.)
  * - slow-aura: enemies within `radius` tiles of the hero move `slow` slower (not Mirrors).
  * - tower-aura: towers within `radius` tiles of the hero deal `damage` more (0.2 = +20%).
  * - element-hits: the hero's hits apply its element's status effect at `power` (like a level-1 tower = 1).
@@ -60,7 +61,7 @@ export type HeroEffect =
  * - tower-rate-aura: towers within `radius` tiles fire `rate` faster (0.15 = +15%).
  */
 export type HeroPassiveEffect =
-  | { kind: 'execute'; threshold: number }
+  | { kind: 'finisher'; threshold: number; bonus: number }
   | { kind: 'slow-aura'; radius: number; slow: number }
   | { kind: 'tower-aura'; radius: number; damage: number }
   | { kind: 'element-hits'; power: number }
@@ -157,17 +158,17 @@ export const HEROES: Record<HeroId, HeroDef> = {
     color: '#ffe600', element: 'water', speed: 3,
     attack: { damage: 10, fireRate: 1.6, range: 2.6, armorPierce: 0.3, critChance: 0.1 },
     passive: {
-      name: 'Spotter Uplink', effect: { kind: 'vulnerable-aura', radius: 2.5, amp: 0.12 },
-      description: 'Her drones paint targets: enemies within 2.5 tiles of her take 12% more damage from everything.',
+      name: 'Spotter Uplink', effect: { kind: 'vulnerable-aura', radius: 2.5, amp: 0.15 },
+      description: 'Her drones paint targets: enemies within 2.5 tiles of her take 15% more damage from everything.',
     },
     abilities: [
       {
-        id: 'vex-pulse', name: 'Pulse Blast', unlockLevel: 1, cooldown: 8, target: 'point', castRange: 4.5, aimRadius: 1.4,
-        effect: { kind: 'blast', radius: 1.4, damage: 70 },
+        id: 'vex-pulse', name: 'Pulse Blast', unlockLevel: 1, cooldown: 7, target: 'point', castRange: 4.5, aimRadius: 1.4,
+        effect: { kind: 'blast', radius: 1.4, damage: 65 },
         description: 'Blast every enemy in a small area near the hero.',
       },
       {
-        id: 'vex-emp', name: 'EMP', unlockLevel: 3, cooldown: 18, target: 'self', castRange: 0, aimRadius: 2.6,
+        id: 'vex-emp', name: 'EMP', unlockLevel: 3, cooldown: 16, target: 'self', castRange: 0, aimRadius: 2.6,
         effect: { kind: 'blast', radius: 2.6, damage: 25, stun: 1.5, stripShields: true },
         description: 'Stun everything around the hero for 1.5s and strip enemy shields.',
       },
@@ -178,7 +179,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
       },
       {
         id: 'vex-orbital', name: 'Orbital Strike', unlockLevel: 8, cooldown: 55, target: 'point', castRange: Infinity, aimRadius: 2.2,
-        effect: { kind: 'strike', radius: 2.2, damage: 450, delay: 1 },
+        effect: { kind: 'strike', radius: 2.2, damage: 520, delay: 1 },
         description: 'After 1s, a satellite beam hits anywhere on the map for massive damage.',
       },
     ],
@@ -196,7 +197,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     abilities: [
       {
         id: 'mateo-slam', name: 'Ground Slam', unlockLevel: 1, cooldown: 11, target: 'self', castRange: 0, aimRadius: 1.6,
-        effect: { kind: 'blast', radius: 1.6, damage: 40, stun: 0.8 },
+        effect: { kind: 'blast', radius: 1.6, damage: 45, stun: 0.8 },
         description: 'Smash the ground: damage and stun everything around the hero for 0.8s.',
       },
       {
@@ -206,8 +207,8 @@ export const HEROES: Record<HeroId, HeroDef> = {
       },
       {
         id: 'mateo-overdrive', name: 'Overdrive', unlockLevel: 5, cooldown: 25, target: 'self', castRange: 0, aimRadius: 0,
-        effect: { kind: 'buff', duration: 6, attackSpeed: 1.6, damage: 1.25 },
-        description: 'For 6s, punch 60% faster and 25% harder.',
+        effect: { kind: 'buff', duration: 6, attackSpeed: 1.8, damage: 1.3 },
+        description: 'For 6s, punch 80% faster and 30% harder.',
       },
       {
         id: 'mateo-quake', name: 'Seismic Quake', unlockLevel: 8, cooldown: 55, target: 'self', castRange: 0, aimRadius: 3.5,
@@ -229,7 +230,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     abilities: [
       {
         id: 'leila-pierce', name: 'Piercing Round', unlockLevel: 1, cooldown: 7, target: 'point', castRange: 8, aimRadius: 0.5,
-        effect: { kind: 'pierce', length: 8, width: 0.5, damage: 110 },
+        effect: { kind: 'pierce', length: 8, width: 0.5, damage: 95 },
         description: 'A round that passes through everything in a straight line toward the spot.',
       },
       {
@@ -244,7 +245,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
       },
       {
         id: 'leila-headhunter', name: 'Headhunter', unlockLevel: 8, cooldown: 55, target: 'global', castRange: 0, aimRadius: 0,
-        effect: { kind: 'execute', count: 6, damage: 380 },
+        effect: { kind: 'snipe', count: 6, damage: 380 },
         description: 'Six shots at the six toughest enemies anywhere on the map.',
       },
     ],
@@ -262,8 +263,8 @@ export const HEROES: Record<HeroId, HeroDef> = {
     abilities: [
       {
         id: 'arjun-firewall', name: 'Firewall', unlockLevel: 1, cooldown: 10, target: 'point', castRange: 5, aimRadius: 1.6,
-        effect: { kind: 'zone', radius: 1.6, duration: 5, dps: 30 },
-        description: 'A burning code wall for 5s: 30 damage per second to everything inside.',
+        effect: { kind: 'zone', radius: 1.6, duration: 5, dps: 26 },
+        description: 'A burning code wall for 5s: 26 damage per second to everything inside.',
       },
       {
         id: 'arjun-gravity', name: 'Gravity Well', unlockLevel: 3, cooldown: 18, target: 'point', castRange: 5, aimRadius: 1.8,
@@ -295,7 +296,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     abilities: [
       {
         id: 'echo-drone', name: 'Deploy Drone', unlockLevel: 1, cooldown: 12, target: 'point', castRange: 4, aimRadius: 2.5,
-        effect: { kind: 'summon', count: 1, duration: 12, damage: 17, fireRate: 2, range: 2.5 },
+        effect: { kind: 'summon', count: 1, duration: 12, damage: 20, fireRate: 2, range: 2.5 },
         description: 'Place a combat drone for 12s that shoots on its own.',
       },
       {
@@ -322,20 +323,20 @@ export const HEROES: Record<HeroId, HeroDef> = {
     pronouns: 'he/him', race: 'Human (cybernetic arm)', origin: 'Osaka, Japan', role: 'Duelist',
     bio: 'A kendo champion who lost his arm to a factory press and rebuilt it with a monoblade inside. Quiet, exact, and never wastes a cut.',
     color: '#e6ecff', element: 'metal', speed: 3.6, unlockedBy: 'core-nexus',
-    attack: { damage: 13, fireRate: 1.1, range: 1.2, armorPierce: 0.5, critChance: 0.2 },
+    attack: { damage: 15, fireRate: 1.1, range: 1.2, armorPierce: 0.5, critChance: 0.2 },
     passive: {
-      name: 'Execution', effect: { kind: 'execute', threshold: 0.12 },
-      description: 'His hits instantly finish any enemy (not bosses) left at 12% HP or less.',
+      name: 'Finisher', effect: { kind: 'finisher', threshold: 0.3, bonus: 0.6 },
+      description: 'His hits deal 60% more damage to enemies below 30% HP.',
     },
     abilities: [
       {
         id: 'kaito-step', name: 'Flash Step', unlockLevel: 1, cooldown: 9, target: 'point', castRange: 4.5, aimRadius: 1,
-        effect: { kind: 'dash', radius: 1, damage: 70 },
+        effect: { kind: 'dash', radius: 1, damage: 85 },
         description: 'Blink to a spot and cut everything around where he lands.',
       },
       {
         id: 'kaito-iaido', name: 'Iaido', unlockLevel: 3, cooldown: 12, target: 'point', castRange: 5, aimRadius: 0.6,
-        effect: { kind: 'pierce', length: 5, width: 0.6, damage: 130 },
+        effect: { kind: 'pierce', length: 5, width: 0.6, damage: 115 },
         description: 'One quick-draw slash that cuts through everything in a 5-tile line.',
       },
       {
@@ -345,7 +346,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
       },
       {
         id: 'kaito-cuts', name: 'Thousand Cuts', unlockLevel: 8, cooldown: 55, target: 'global', castRange: 0, aimRadius: 0,
-        effect: { kind: 'execute', count: 8, damage: 240 },
+        effect: { kind: 'snipe', count: 8, damage: 240 },
         description: 'Eight strikes at the eight toughest enemies anywhere on the map.',
       },
     ],
@@ -357,8 +358,8 @@ export const HEROES: Record<HeroId, HeroDef> = {
     color: '#3ab8ff', element: 'water', speed: 3, unlockedBy: 'core-nexus',
     attack: { damage: 9, fireRate: 1.4, range: 3, armorPierce: 0.2, critChance: 0.05 },
     passive: {
-      name: 'Undertow', effect: { kind: 'slow-aura', radius: 2.5, slow: 0.25 },
-      description: 'Enemies within 2.5 tiles of her move 25% slower.',
+      name: 'Undertow', effect: { kind: 'slow-aura', radius: 2.5, slow: 0.3 },
+      description: 'Enemies within 2.5 tiles of her move 30% slower.',
     },
     abilities: [
       {
@@ -373,7 +374,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
       },
       {
         id: 'nalani-dive', name: 'Pressure Dive', unlockLevel: 5, cooldown: 18, target: 'self', castRange: 0, aimRadius: 2.2,
-        effect: { kind: 'blast', radius: 2.2, damage: 60, stun: 1 },
+        effect: { kind: 'blast', radius: 2.2, damage: 50, stun: 1 },
         description: 'Slam a pressure wave around her: damage and a 1s stun.',
       },
       {
@@ -462,8 +463,8 @@ export const HEROES: Record<HeroId, HeroDef> = {
     abilities: [
       {
         id: 'zeynep-napalm', name: 'Napalm', unlockLevel: 1, cooldown: 10, target: 'point', castRange: 5, aimRadius: 1.4,
-        effect: { kind: 'zone', radius: 1.4, duration: 4, dps: 34 },
-        description: 'Burning fuel for 4s: 34 damage per second to everything inside.',
+        effect: { kind: 'zone', radius: 1.4, duration: 4, dps: 30 },
+        description: 'Burning fuel for 4s: 30 damage per second to everything inside.',
       },
       {
         id: 'zeynep-flash', name: 'Flashbang', unlockLevel: 3, cooldown: 16, target: 'point', castRange: 5, aimRadius: 2,
@@ -472,12 +473,12 @@ export const HEROES: Record<HeroId, HeroDef> = {
       },
       {
         id: 'zeynep-incendiary', name: 'Incendiary Rounds', unlockLevel: 5, cooldown: 22, target: 'self', castRange: 0, aimRadius: 0,
-        effect: { kind: 'buff', duration: 6, attackSpeed: 1.5, damage: 1.5 },
-        description: 'For 6s, shoot 50% faster and 50% harder.',
+        effect: { kind: 'buff', duration: 7, attackSpeed: 1.6, damage: 1.6 },
+        description: 'For 7s, shoot 60% faster and 60% harder.',
       },
       {
-        id: 'zeynep-sunfall', name: 'Sunfall', unlockLevel: 8, cooldown: 55, target: 'point', castRange: Infinity, aimRadius: 2.6,
-        effect: { kind: 'strike', radius: 2.6, damage: 480, delay: 1.2 },
+        id: 'zeynep-sunfall', name: 'Sunfall', unlockLevel: 8, cooldown: 55, target: 'point', castRange: Infinity, aimRadius: 2.4,
+        effect: { kind: 'strike', radius: 2.4, damage: 420, delay: 1.2 },
         description: 'After 1.2s, a column of fire hits anywhere on the map.',
       },
     ],
