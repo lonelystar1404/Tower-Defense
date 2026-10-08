@@ -386,6 +386,88 @@ export function drawHeroSprite(
       ctx.fillStyle = color;
       ctx.fillRect(r * 0.2, -r * 0.35, r * 0.4, r * 0.7);
       break;
+    case 'kaito':
+      // Slim duelist with a long monoblade held forward
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(r * 0.3, r * 0.35);
+      ctx.lineTo(r * 1.9, -r * 0.25);
+      ctx.stroke();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.1, 0, r * 0.65, r * 0.55, 0, 0, Math.PI * 2);
+      body();
+      // Visor slit
+      ctx.fillStyle = color;
+      ctx.fillRect(r * 0.15, -r * 0.3, r * 0.3, r * 0.6);
+      break;
+    case 'nalani':
+      // Round diver with trailing current arcs
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.4;
+      for (let i = 0; i < 3; i++) {
+        const k = ((time * 0.8 + i / 3) % 1);
+        ctx.globalAlpha = 1 - k;
+        ctx.beginPath();
+        ctx.arc(-r * (0.6 + k * 0.9), 0, r * (0.5 + k * 0.6), -1.1, 1.1);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.8, 0, Math.PI * 2);
+      body();
+      glowDot(ctx, r * 0.25, 0, r * 0.35, '#d8f4ff', color);
+      break;
+    case 'ines':
+      // Square exo-frame with a big wrench arm
+      roundRect(ctx, -r * 0.75, -r * 0.7, r * 1.35, r * 1.4, r * 0.15);
+      body();
+      ctx.fillStyle = color;
+      ctx.fillRect(r * 0.4, r * 0.3, r * 0.9, r * 0.22);
+      ctx.beginPath();
+      ctx.arc(r * 1.35, r * 0.41, r * 0.26, 0, Math.PI * 2);
+      ctx.fill();
+      // Hex core
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) ctx.lineTo(Math.cos((i / 6) * Math.PI * 2) * r * 0.32 - r * 0.05, Math.sin((i / 6) * Math.PI * 2) * r * 0.32);
+      ctx.closePath();
+      ctx.fillStyle = '#fff3d6';
+      ctx.fill();
+      break;
+    case 'rua':
+      // Round body with three leaf fronds that sway
+      for (let i = 0; i < 3; i++) {
+        const a = Math.PI * (0.75 + i * 0.25) + Math.sin(time * 2 + i) * 0.12;
+        ctx.save();
+        ctx.rotate(a);
+        ctx.beginPath();
+        ctx.ellipse(r * 1.05, 0, r * 0.55, r * 0.2, 0, 0, Math.PI * 2);
+        ctx.fillStyle = `${color}55`;
+        ctx.fill();
+        neonStroke(ctx, color, 1);
+        ctx.restore();
+      }
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.75, 0, Math.PI * 2);
+      body();
+      glowDot(ctx, r * 0.2, 0, r * 0.32, '#eaffd0', color);
+      break;
+    case 'zeynep':
+      // Hooded triangle with twin pistols and a hot muzzle glow
+      ctx.fillStyle = color;
+      for (const side of [-1, 1]) ctx.fillRect(r * 0.3, side * r * 0.42 - 1.5, r * 0.95, 3);
+      ctx.beginPath();
+      ctx.moveTo(r * 0.75, 0);
+      ctx.lineTo(-r * 0.75, r * 0.8);
+      ctx.lineTo(-r * 0.75, -r * 0.8);
+      ctx.closePath();
+      body();
+      glowDot(ctx, r * 1.3, Math.sin(time * 9) * r * 0.42, r * 0.18, '#fff0c0', color);
+      glowDot(ctx, -r * 0.1, 0, r * 0.3, '#ffd2c4', color);
+      break;
     default:
       // Vex: a caped arrow pointing where she faces
       ctx.beginPath();

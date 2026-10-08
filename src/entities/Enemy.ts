@@ -30,7 +30,8 @@ export class Enemy implements Targetable {
   reward: number;
   /** Remaining energy shield (Shielder); absorbs damage before HP. */
   shield = 0;
-  readonly maxShield: number;
+  /** Size of the current shield (bosses raise new ones), for the shield bar. */
+  maxShield: number;
   /** Stealth units can't be targeted while hidden (see Game.updateAbilities). */
   hidden = false;
   /** Seconds until the next heal / blink / spawn. */
@@ -44,6 +45,9 @@ export class Enemy implements Targetable {
   bonusArmor = 0;
   /** Burrowers: seconds left underground (untargetable and immune while > 0). */
   burrowTime = 0;
+  /** Bosses: how many phases have started so far, and the speed boost from enraging. */
+  phase = 0;
+  speedMult = 1;
 
   /**
    * `route` is the ground path for walkers or the flight line for flyers. `element` overrides
@@ -96,7 +100,7 @@ export class Enemy implements Targetable {
 
   /** Current speed in tiles per second, after slows and stops. */
   get speed(): number {
-    return this.def.speed * speedMultiplier(this.status);
+    return this.def.speed * this.speedMult * speedMultiplier(this.status);
   }
 
   get remaining(): number {

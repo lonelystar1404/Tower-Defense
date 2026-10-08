@@ -11,27 +11,36 @@ export function comboKey({ weapon, element }: TowerOption): ComboKey {
 
 /**
  * Picks which element × weapon combos are locked for a wave: `fraction` of all combos
- * (rounded), chosen at random, skipping any lock that would leave a weapon or an element
- * with fewer open combos than the LOCKDOWN minimums.
+ * (rounded), chosen at random, while every weapon and every element keeps at least the
+ * LOCKDOWN minimum of open combos. The minimums are reserved first (so a high fraction still
+ * locks exactly its share), then the rest of the open slots are filled at random.
  */
 export function rollLocks(rng: Rng, fraction: number): Set<ComboKey> {
   const combos: TowerOption[] = BUILD_WEAPONS.flatMap((weapon) => BUILD_ELEMENTS.map((element) => ({ weapon, element })));
   const target = Math.round(combos.length * fraction);
+  if (target === 0) return new Set();
   // Fisher–Yates shuffle
   for (let i = combos.length - 1; i > 0; i--) {
     const j = Math.min(i, Math.floor(rng() * (i + 1)));
     [combos[i], combos[j]] = [combos[j], combos[i]];
   }
-  const openPerWeapon = new Map<WeaponId, number>(BUILD_WEAPONS.map((w) => [w, BUILD_ELEMENTS.length]));
-  const openPerElement = new Map<ElementId, number>(BUILD_ELEMENTS.map((e) => [e, BUILD_WEAPONS.length]));
-  const locked = new Set<ComboKey>();
-  for (const c of combos) {
-    if (locked.size >= target) break;
-    if (openPerWeapon.get(c.weapon)! <= LOCKDOWN.minOpenPerWeapon) continue;
-    if (openPerElement.get(c.element)! <= LOCKDOWN.minOpenPerElement) continue;
-    locked.add(comboKey(c));
-    openPerWeapon.set(c.weapon, openPerWeapon.get(c.weapon)! - 1);
-    openPerElement.set(c.element, openPerElement.get(c.element)! - 1);
+  const open = new Set<ComboKey>();
+  const openCount = (match: (c: TowerOption) => boolean) => combos.filter((c) => match(c) && open.has(comboKey(c))).length;
+  const needsWeapon = (w: WeaponId) => openCount((c) => c.weapon === w) < LOCKDOWN.minOpenPerWeapon;
+  const needsElement = (e: ElementId) => openCount((c) => c.element === e) < LOCKDOWN.minOpenPerElement;
+  // Reserve the minimums, preferring combos that cover a weapon and an element that both need one.
+  for (;;) {
+    const free = combos.filter((c) => !open.has(comboKey(c)));
+    const pick =
+      free.find((c) => needsWeapon(c.weapon) && needsElement(c.element)) ??
+      free.find((c) => needsWeapon(c.weapon) || needsElement(c.element));
+    if (!pick) break;
+    open.add(comboKey(pick));
   }
-  return locked;
+  // Fill the remaining open slots at random, then lock everything else.
+  for (const c of combos) {
+    if (combos.length - open.size <= target) break;
+    open.add(comboKey(c));
+  }
+  return new Set(combos.map(comboKey).filter((k) => !open.has(k)));
 }

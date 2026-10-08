@@ -1,4 +1,6 @@
 import { ABILITY_KEYS, HEROES, HERO_IDS, type HeroId } from '../data/hero';
+import { LEVELS } from '../data/levels';
+import { t } from '../i18n';
 import type { LevelDef } from '../data/levels';
 import { drawHeroSprite } from '../render/sprites';
 import { ABILITY_ICONS } from './HeroBar';
@@ -29,6 +31,8 @@ export class HeroSelect {
   private level: LevelDef | null = null;
   private picked: HeroId = 'vex';
   private frame = 0;
+  /** Which heroes can be picked (second-roster heroes unlock by clearing a map). */
+  private unlocked: (id: HeroId) => boolean = () => true;
 
   constructor(
     private readonly root: HTMLElement,
@@ -38,13 +42,13 @@ export class HeroSelect {
     root.addEventListener('click', (ev) => {
       const el = ev.target as HTMLElement;
       if (el.closest('[data-back]')) return this.onBack();
-      if (el.closest('[data-deploy]') && this.level) {
+      if (el.closest('[data-deploy]') && this.level && this.unlocked(this.picked)) {
         saveHero(this.picked);
         this.hide();
         return this.onDeploy(this.level, this.picked);
       }
       const card = el.closest<HTMLElement>('[data-hero]');
-      if (card) {
+      if (card && !card.classList.contains('locked')) {
         this.picked = card.dataset.hero as HeroId;
         this.render();
       }
@@ -55,12 +59,18 @@ export class HeroSelect {
     return !this.root.hidden;
   }
 
-  show(level: LevelDef): void {
+  show(level: LevelDef, unlocked: (id: HeroId) => boolean = () => true): void {
     this.level = level;
-    this.picked = lastHero();
+    this.unlocked = unlocked;
+    this.picked = unlocked(lastHero()) ? lastHero() : 'vex';
     this.render();
     this.root.hidden = false;
     this.animate();
+  }
+
+  /** Redraws the screen if it's open (after a language change). */
+  refresh(): void {
+    if (this.open) this.render();
   }
 
   hide(): void {
@@ -72,31 +82,38 @@ export class HeroSelect {
     const cards = HERO_IDS.map((id) => {
       const def = HEROES[id];
       const a = def.attack;
-      const attack = a.cleave ? 'Melee, hits around the target' : a.chain ? `Magic bolt, jumps to ${a.chain} more` : a.range >= 4 ? 'Long-range shots' : 'Rapid shots';
+      const attack = a.cleave ? t('Melee, hits around the target') : a.chain ? t('Magic bolt, jumps to {n} more', { n: a.chain }) : a.range >= 4 ? t('Long-range shots') : t('Rapid shots');
       const abilities = def.abilities
         .map(
           (ab, slot) => `
-          <li title="${ab.description}">
+          <li title="${t(ab.description)}">
             <svg viewBox="0 0 24 24" aria-hidden="true">${ABILITY_ICONS[ab.id] ?? ''}</svg>
-            <span><b>${ABILITY_KEYS[slot]}</b> ${ab.name}</span><span class="lv">Lv ${ab.unlockLevel}</span>
+            <span><b>${ABILITY_KEYS[slot]}</b> ${t(ab.name)}</span><span class="lv">${t('Lv')} ${ab.unlockLevel}</span>
           </li>`,
         )
         .join('');
+      const open = this.unlocked(id);
+      const unlockMap = LEVELS.find((l) => l.id === def.unlockedBy);
+      const passive = def.passive
+        ? `<div class="hero-passive" title="${t(def.passive.description)}">✦ ${t('Passive')} · <b>${t(def.passive.name)}</b>: ${t(def.passive.description)}</div>`
+        : '';
       return `
-        <button class="hero-card ${id === this.picked ? 'picked' : ''}" data-hero="${id}" style="--el-color:${def.color}" aria-pressed="${id === this.picked}">
+        <button class="hero-card ${id === this.picked ? 'picked' : ''} ${open ? '' : 'locked'}" data-hero="${id}" style="--el-color:${def.color}" aria-pressed="${id === this.picked}" ${open ? '' : 'aria-disabled="true"'}>
+          ${open ? '' : `<span class="hero-lock">🔒 ${t('Clear {map} to unlock', { map: t(unlockMap?.name ?? 'Core Nexus') })}</span>`}
           <canvas width="96" height="96" data-portrait="${id}"></canvas>
           ${heroProfile(def)}
-          <div class="hero-attack">⚔ ${attack} · range ${a.range}</div>
+          <div class="hero-attack">⚔ ${attack} · ${t('range {n}', { n: a.range })}</div>
+          ${passive}
           <ul class="hero-abilities-list">${abilities}</ul>
         </button>`;
     }).join('');
     this.root.innerHTML = `
       <div class="menu-card hero-select-card">
         <div class="menu-head">
-          <h2>Choose your hero · ${this.level?.name ?? ''}</h2>
+          <h2>${t('Choose your hero')} · ${t(this.level?.name ?? '')}</h2>
           <div class="row">
-            <button data-back>Back</button>
-            <button class="primary" data-deploy>Deploy ${HEROES[this.picked].callsign}</button>
+            <button data-back>${t('Back')}</button>
+            <button class="primary" data-deploy>${t('Deploy {name}', { name: HEROES[this.picked].callsign })}</button>
           </div>
         </div>
         <div class="hero-grid">${cards}</div>

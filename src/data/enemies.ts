@@ -8,7 +8,9 @@ export type EnemyId =
   | 'shielder' | 'medic' | 'splitter' | 'shard' | 'ghost' | 'phaser' | 'carrier'
   | 'jammer' | 'mirror'
   | 'disruptor' | 'prism'
-  | 'burrower' | 'warden';
+  | 'burrower' | 'warden'
+  // Bosses (one in each map's final wave)
+  | 'colossus' | 'bulwark' | 'chimera' | 'leviathan';
 
 /**
  * Special abilities (rules in `Game.updateAbilities` and `systems/combat`):
@@ -42,6 +44,29 @@ export type AbilityDef =
   | { kind: 'burrow'; interval: number; duration: number }
   | { kind: 'fortify'; radius: number; armor: number };
 
+/**
+ * What a boss does when its HP first drops to a phase threshold (rules in `Game.updateBoss`):
+ * - summon: releases `count` enemies of type `enemy` (same HP multiplier as the boss).
+ * - shield: a fresh shield of `fraction` × max HP (blocks status effects while it holds).
+ * - enrage: moves `speed`× as fast from now on.
+ * - shift: its element moves one step around the cycle.
+ * - cleanse: shakes off burn, chill, freeze, root, poison, and stun (armor break stays).
+ */
+export type BossAction =
+  | { kind: 'summon'; enemy: EnemyId; count: number }
+  | { kind: 'shield'; fraction: number }
+  | { kind: 'enrage'; speed: number }
+  | { kind: 'shift' }
+  | { kind: 'cleanse' };
+
+export interface BossPhase {
+  /** Triggers the first time HP falls to this fraction of max HP. */
+  at: number;
+  /** Shown on the map when the phase starts, e.g. "OVERDRIVE". */
+  name: string;
+  actions: BossAction[];
+}
+
 export interface EnemyDef {
   id: EnemyId;
   name: string;
@@ -62,6 +87,8 @@ export interface EnemyDef {
   /** Neon trim and visor color. */
   color: string;
   ability?: AbilityDef;
+  /** Bosses: phases in order of falling HP. Shown with a big HP bar at the top of the map. */
+  phases?: BossPhase[];
   /** Player-facing one-liner (map select, wave preview tooltips). */
   description: string;
 }
@@ -205,4 +232,54 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
     ability: { kind: 'fortify', radius: 1.8, armor: 5 },
     description: 'Gives other enemies within 1.8 tiles +5 armor; Metal pierce and Earth break it',
   },
+
+  // Bosses: huge HP pools with phases. Wave groups set their HP multiplier and element per map.
+  colossus: {
+    id: 'colossus', name: 'Siege Colossus',
+    hp: 1000, speed: 0.5, armor: 8, movement: 'ground', element: 'metal',
+    reward: 120, livesCost: 10, radius: 0.5, color: '#ff3864',
+    phases: [
+      { at: 0.66, name: 'Escorts', actions: [{ kind: 'summon', enemy: 'brute', count: 2 }, { kind: 'summon', enemy: 'grunt', count: 6 }] },
+      { at: 0.33, name: 'Overdrive', actions: [{ kind: 'cleanse' }, { kind: 'enrage', speed: 1.6 }] },
+    ],
+    description: 'Calls escorts at 66% HP; at 33% shakes off effects and speeds up',
+  },
+  bulwark: {
+    id: 'bulwark', name: 'Bulwark',
+    hp: 700, speed: 0.6, armor: 4, movement: 'ground', element: 'water',
+    reward: 100, livesCost: 8, radius: 0.48, color: '#4dd2ff',
+    ability: { kind: 'shield', fraction: 0.5 },
+    phases: [
+      { at: 0.6, name: 'Shield Wall', actions: [{ kind: 'shield', fraction: 0.4 }, { kind: 'summon', enemy: 'shielder', count: 3 }] },
+      { at: 0.25, name: 'Last Stand', actions: [{ kind: 'shield', fraction: 0.3 }, { kind: 'enrage', speed: 1.4 }] },
+    ],
+    description: 'Starts shielded and raises new shields at 60% and 25% HP',
+  },
+  chimera: {
+    id: 'chimera', name: 'Chimera',
+    hp: 900, speed: 0.6, armor: 3, movement: 'ground', element: 'fire',
+    reward: 100, livesCost: 8, radius: 0.48, color: '#f6a8ff',
+    phases: [
+      { at: 0.75, name: 'Mutation', actions: [{ kind: 'shift' }, { kind: 'summon', enemy: 'splitter', count: 2 }] },
+      { at: 0.5, name: 'Mutation', actions: [{ kind: 'shift' }, { kind: 'cleanse' }, { kind: 'summon', enemy: 'splitter', count: 2 }] },
+      { at: 0.25, name: 'Mutation', actions: [{ kind: 'shift' }, { kind: 'summon', enemy: 'splitter', count: 2 }, { kind: 'enrage', speed: 1.3 }] },
+    ],
+    description: 'Changes element at 75%, 50%, and 25% HP and sheds Splitters',
+  },
+  leviathan: {
+    id: 'leviathan', name: 'Sky Leviathan',
+    hp: 1000, speed: 0.42, armor: 5, movement: 'air', element: 'water',
+    reward: 120, livesCost: 8, radius: 0.6, color: '#5affd8',
+    ability: { kind: 'spawn', child: 'drone', interval: 7 },
+    phases: [
+      { at: 0.66, name: 'Deflector', actions: [{ kind: 'shield', fraction: 0.25 }] },
+      { at: 0.33, name: 'Launch Bay', actions: [{ kind: 'summon', enemy: 'drone', count: 4 }, { kind: 'summon', enemy: 'wyvern', count: 1 }, { kind: 'enrage', speed: 1.15 }] },
+    ],
+    description: 'Flying fortress that launches Drones; shields at 66%, empties its hangar at 33%',
+  },
 };
+
+/** Whether this enemy type is a boss. */
+export function isBoss(def: EnemyDef): boolean {
+  return def.phases !== undefined;
+}

@@ -10,7 +10,8 @@ import type { Game } from '../game/Game';
 import type { ObstacleDef } from '../data/levels';
 import { seededRng } from '../systems/rng';
 import { drawHeroSprite, drawTower, flame, glowDot, neonStroke, roundRect } from './sprites';
-import { THEME } from './theme';
+import { canvasFont, THEME } from './theme';
+import { t as tr } from '../i18n';
 
 /** Pixels per tile. Game logic is in tile units; only the renderer knows about pixels. */
 export const TILE = 40;
@@ -45,6 +46,9 @@ export class Renderer {
   /** Battlefield banner: shown for a moment whenever the battlefield changes. */
   private bannerField: BattlefieldDef | null = null;
   private bannerStart = 0;
+  /** Boss arrival banner: the boss it's for and when it started. */
+  private bossBanner: Enemy | null = null;
+  private bossBannerStart = 0;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -72,6 +76,14 @@ export class Renderer {
       }
       drawTower(ctx, t.x * TILE, t.y * TILE, TILE, t.element, t.weapon, t.angle, t.recoil, t.level);
       if (t.disabledTime > 0) this.drawOffline(t, game.time);
+      else if (game.isLocked(t)) {
+        // Encrypted this wave: no upgrades
+        ctx.font = '9px system-ui, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.globalAlpha = 0.85;
+        ctx.fillText('🔒', (t.col + 1) * TILE - 2, t.row * TILE + 10);
+        ctx.globalAlpha = 1;
+      }
     }
 
     this.drawZones(game);
@@ -85,7 +97,79 @@ export class Renderer {
     this.drawEffects(game);
     this.drawHover(game, view);
     this.drawAim(game, view);
+    this.drawBossBar(game);
     this.drawBanner(game);
+  }
+
+  /** Big HP bar for the boss on the map, with phase marks and its shield; a banner when it arrives. */
+  private drawBossBar(game: Game): void {
+    const boss = game.enemies.find((e) => e.alive && e.def.phases);
+    if (!boss) return;
+    const ctx = this.ctx;
+    const def = boss.def;
+    const mapW = game.level.cols * TILE;
+    const now = performance.now();
+    if (this.bossBanner !== boss) {
+      this.bossBanner = boss;
+      this.bossBannerStart = now;
+    }
+
+    const w = Math.min(420, mapW * 0.6);
+    const x = (mapW - w) / 2;
+    const y = 26;
+    ctx.save();
+    ctx.fillStyle = 'rgba(5,6,11,0.8)';
+    roundRect(ctx, x - 10, y - 20, w + 20, 40, 6);
+    ctx.fill();
+    neonStroke(ctx, hexAlpha(def.color, 0.8), 1.2);
+    ctx.font = canvasFont('display', 11, '800');
+    ctx.textAlign = 'left';
+    ctx.fillStyle = def.color;
+    ctx.fillText(`${tr('BOSS')} · ${tr(def.name).toUpperCase()}`, x, y - 5);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#ffffff';
+    const phaseText = boss.phase > 0 ? `${tr('PHASE {n}', { n: boss.phase + 1 })} · ` : '';
+    ctx.fillText(`${phaseText}${Math.ceil((boss.hp / boss.maxHp) * 100)}%`, x + w, y - 5);
+    // HP bar with a mark at each phase threshold
+    const frac = Math.max(0, boss.hp / boss.maxHp);
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillRect(x, y, w, 8);
+    ctx.fillStyle = def.color;
+    ctx.fillRect(x, y, w * frac, 8);
+    if (boss.shield > 0 && boss.maxShield > 0) {
+      ctx.fillStyle = 'rgba(77,210,255,0.85)';
+      ctx.fillRect(x, y + 9, w * (boss.shield / boss.maxShield), 3);
+    }
+    ctx.fillStyle = '#ffffff';
+    def.phases!.forEach((p, i) => {
+      ctx.globalAlpha = i < boss.phase ? 0.3 : 0.9;
+      ctx.fillRect(x + w * p.at - 1, y - 2, 2, 12);
+    });
+    ctx.restore();
+
+    // Arrival banner
+    const t = (now - this.bossBannerStart) / 1000;
+    const DURATION = 3;
+    if (t > DURATION) return;
+    const by = game.level.rows * TILE * 0.42;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, t * 4, (DURATION - t) * 1.5);
+    ctx.fillStyle = 'rgba(5,6,11,0.85)';
+    ctx.fillRect(0, by - 36, mapW, 72);
+    ctx.fillStyle = def.color;
+    ctx.fillRect(0, by - 36, mapW, 2);
+    ctx.fillRect(0, by + 34, mapW, 2);
+    ctx.textAlign = 'center';
+    ctx.font = canvasFont('display', 26, '800');
+    ctx.shadowColor = def.color;
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(`⚠ ${tr('BOSS')}: ${tr(def.name).toUpperCase()}`, mapW / 2, by + 2);
+    ctx.shadowBlur = 0;
+    ctx.font = canvasFont('mono', 13);
+    ctx.fillStyle = def.color;
+    ctx.fillText(tr(def.description), mapW / 2, by + 24);
+    ctx.restore();
   }
 
   /** A tower knocked out by a Disruptor: dimmed, with crackling sparks and its seconds left. */
@@ -114,10 +198,10 @@ export class Renderer {
       ctx.stroke();
     }
     ctx.globalCompositeOperation = 'source-over';
-    ctx.font = "bold 9px 'Share Tech Mono', ui-monospace, monospace";
+    ctx.font = canvasFont('mono', 9);
     ctx.textAlign = 'center';
     ctx.fillStyle = '#8fb4ff';
-    ctx.fillText(`OFF ${t.disabledTime.toFixed(1)}`, x + TILE / 2, y + TILE - 4);
+    ctx.fillText(`${tr('OFF')} ${t.disabledTime.toFixed(1)}`, x + TILE / 2, y + TILE - 4);
     ctx.restore();
   }
 
@@ -176,7 +260,7 @@ export class Renderer {
       ctx.globalAlpha = 1;
       // Above the target ring, or below it when that would leave the map
       const labelY = s.y * TILE - r - 10 >= 10 ? s.y * TILE - r - 10 : s.y * TILE + r + 12;
-      countdownLabel(ctx, s.x * TILE, labelY, `IMPACT ${Math.max(0, s.delay).toFixed(1)}`, '#ff5a36');
+      countdownLabel(ctx, s.x * TILE, labelY, `${tr('IMPACT')} ${Math.max(0, s.delay).toFixed(1)}`, '#ff5a36');
       ctx.restore();
     }
   }
@@ -188,6 +272,21 @@ export class Renderer {
     const y = hero.y * TILE;
     const r = TILE * 0.3;
     const color = hero.def.color;
+    // Passive aura (Undertow, Field Engineer, Bounty): a faint turning ring at its reach
+    const passive = hero.def.passive?.effect;
+    if (passive && 'radius' in passive) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, y, passive.radius * TILE, 0, Math.PI * 2);
+      ctx.fillStyle = hexAlpha(color, 0.035);
+      ctx.fill();
+      ctx.setLineDash([2, 7]);
+      ctx.lineDashOffset = -time * 12;
+      ctx.strokeStyle = hexAlpha(color, 0.45);
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.restore();
+    }
     if (selected) {
       this.drawRange(hero.x, hero.y, hero.def.attack.range, hexAlpha(color, 0.05), hexAlpha(color, 0.6));
     }
@@ -237,7 +336,7 @@ export class Renderer {
       ctx.shadowBlur = 8;
       ctx.stroke();
       ctx.restore();
-      countdownLabel(ctx, x, y + rr + 10 + ring * 12, `${ab.name} ${hero.effects[slot].toFixed(1)}s`, '#4dd2ff');
+      countdownLabel(ctx, x, y + rr + 10 + ring * 12, `${tr(ab.name)} ${hero.effects[slot].toFixed(1)}s`, '#4dd2ff');
       ring++;
     }
     // Jammed: crackling static
@@ -256,7 +355,7 @@ export class Renderer {
     }
     // Level badge
     ctx.save();
-    ctx.font = "800 10px 'Orbitron', system-ui, sans-serif";
+    ctx.font = canvasFont('display', 10, '800');
     ctx.textAlign = 'center';
     ctx.fillStyle = '#05060b';
     roundRect(ctx, x - 9, y - r - 17, 18, 12, 3);
@@ -265,7 +364,7 @@ export class Renderer {
     ctx.lineWidth = 1;
     ctx.stroke();
     ctx.fillStyle = color;
-    ctx.fillText(hero.level >= MAX_HERO_LEVEL ? 'MAX' : String(hero.level), x, y - r - 7.5);
+    ctx.fillText(hero.level >= MAX_HERO_LEVEL ? tr('MAX') : String(hero.level), x, y - r - 7.5);
     ctx.restore();
   }
 
@@ -393,17 +492,17 @@ export class Renderer {
     ctx.fillRect(w * 0.2, y - 36, w * 0.6, 1.5);
     ctx.fillRect(w * 0.2, y + 34.5, w * 0.6, 1.5);
     ctx.textAlign = 'center';
-    ctx.font = "800 26px 'Orbitron', system-ui, sans-serif";
+    ctx.font = canvasFont('display', 26, '800');
     ctx.shadowColor = el.color;
     ctx.shadowBlur = 16;
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(`BATTLEFIELD: ${field.name.toUpperCase()}`, w / 2, y + 2);
+    ctx.fillText(tr('BATTLEFIELD: {name}', { name: tr(field.name).toUpperCase() }), w / 2, y + 2);
     ctx.shadowBlur = 0;
-    ctx.font = THEME.font;
+    ctx.font = canvasFont('mono', 13);
     ctx.fillStyle = el.color;
-    ctx.fillText(`${el.icon} ${el.name} +${pct(game.battlefieldBonus)}`, w / 2 - 70, y + 24);
+    ctx.fillText(`${el.icon} ${tr(el.name)} +${pct(game.battlefieldBonus)}`, w / 2 - 70, y + 24);
     ctx.fillStyle = weak.color;
-    ctx.fillText(`${weak.icon} ${weak.name} −${pct(game.battlefieldBonus)}`, w / 2 + 70, y + 24);
+    ctx.fillText(`${weak.icon} ${tr(weak.name)} −${pct(game.battlefieldBonus)}`, w / 2 + 70, y + 24);
     ctx.restore();
   }
 
@@ -507,7 +606,8 @@ export class Renderer {
     const gy = e.y * TILE;
     const y = gy - lift;
     // Scale up tougher (higher HP multiplier) enemies a little.
-    const r = e.def.radius * TILE * Math.min(1.5, 1 + (e.maxHp / e.def.hp - 1) * 0.12);
+    const boss = e.def.phases !== undefined;
+    const r = e.def.radius * TILE * (boss ? 1.1 : Math.min(1.5, 1 + (e.maxHp / e.def.hp - 1) * 0.12));
     const angle = Math.atan2(e.dirY, e.dirX);
 
     // Ground units hover on a neon underglow; flyers cast a dark shadow.
@@ -579,6 +679,48 @@ export class Renderer {
         ctx.fillStyle = THEME.hull;
         ctx.fill();
         neonStroke(ctx, color, 1.2);
+      }
+    }
+
+    if (boss) {
+      // Boss: a slowly turning ring of runes, faster once enraged.
+      const spin = time * (e.speedMult > 1 ? 2.4 : 0.8);
+      ctx.strokeStyle = hexAlpha(color, 0.55);
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2 + spin;
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 1.3, a, a + 0.42);
+        ctx.stroke();
+      }
+      if (e.def.id === 'leviathan') {
+        // Long swept wings
+        for (const side of [-1, 1]) {
+          ctx.beginPath();
+          ctx.moveTo(r * 0.5, side * r * 0.4);
+          ctx.lineTo(-r * 0.7, side * r * 1.6);
+          ctx.lineTo(-r * 1.1, side * r * 1.5);
+          ctx.lineTo(-r * 0.6, side * r * 0.4);
+          ctx.closePath();
+          ctx.fillStyle = THEME.hull;
+          ctx.fill();
+          neonStroke(ctx, color, 1.4);
+        }
+      } else if (e.def.id === 'colossus') {
+        // Shoulder cannons
+        ctx.fillStyle = THEME.armorLight;
+        for (const side of [-1, 1]) ctx.fillRect(r * 0.2, side * r * 0.8 - r * 0.15, r * 1.05, r * 0.3);
+      } else if (e.def.id === 'chimera') {
+        // Spines that ripple
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 5; i++) {
+          const a = (i / 5) * Math.PI * 2 + Math.sin(time * 3 + i) * 0.15;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * r * 0.8, Math.sin(a) * r * 0.8);
+          ctx.lineTo(Math.cos(a) * r * 1.45, Math.sin(a) * r * 1.45);
+          ctx.stroke();
+        }
       }
     }
 
@@ -658,6 +800,25 @@ export class Renderer {
         ctx.lineTo(Math.cos(a) * r * 1.05, Math.sin(a) * r * 1.05);
       }
       ctx.closePath();
+    } else if (e.def.id === 'colossus' || e.def.id === 'chimera') {
+      // Octagon (Colossus) or pentagon (Chimera)
+      const sides = e.def.id === 'colossus' ? 8 : 5;
+      ctx.beginPath();
+      for (let i = 0; i < sides; i++) {
+        const a = (i / sides) * Math.PI * 2 + Math.PI / sides;
+        ctx.lineTo(Math.cos(a) * r * 1.05, Math.sin(a) * r * 1.05);
+      }
+      ctx.closePath();
+    } else if (e.def.id === 'bulwark') {
+      roundRect(ctx, -r, -r, r * 2, r * 2, r * 0.5);
+    } else if (e.def.id === 'leviathan') {
+      ctx.beginPath();
+      ctx.moveTo(r * 1.5, 0);
+      ctx.lineTo(r * 0.4, r * 0.6);
+      ctx.lineTo(-r * 1.2, r * 0.45);
+      ctx.lineTo(-r * 1.2, -r * 0.45);
+      ctx.lineTo(r * 0.4, -r * 0.6);
+      ctx.closePath();
     } else if (e.def.id === 'swarm') {
       ctx.beginPath();
       ctx.moveTo(r * 1.1, 0);
@@ -724,6 +885,19 @@ export class Renderer {
       ctx.arc(0, 0, r * 0.45, 0, Math.PI * 2);
       ctx.fillStyle = hexAlpha(color, 0.25 + charge * 0.65);
       ctx.fill();
+    }
+    if (boss) {
+      // Glowing core in its current element (or its own color), pulsing
+      const core = e.element ? ELEMENTS[e.element].color : color;
+      ctx.beginPath();
+      ctx.arc(-r * 0.15, 0, r * (0.32 + Math.sin(time * 4) * 0.05), 0, Math.PI * 2);
+      ctx.fillStyle = hexAlpha(core, 0.85);
+      ctx.fill();
+      if (e.def.id === 'bulwark') {
+        // Front plate
+        ctx.fillStyle = THEME.armorLight;
+        ctx.fillRect(r * 0.55, -r * 0.8, r * 0.3, r * 1.6);
+      }
     }
     if (e.def.id === 'medic') {
       // Medical cross
@@ -1052,7 +1226,7 @@ export class Renderer {
           break;
         }
         case 'text':
-          ctx.font = THEME.font;
+          ctx.font = canvasFont('mono', 13);
           ctx.textAlign = 'center';
           ctx.lineWidth = 3;
           ctx.strokeStyle = 'rgba(0,0,0,0.85)';
@@ -1437,7 +1611,7 @@ function star(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): v
 /** Small countdown text with a dark outline, centered at (x, y). */
 function countdownLabel(ctx: CanvasRenderingContext2D, x: number, y: number, text: string, color: string): void {
   ctx.save();
-  ctx.font = THEME.font;
+  ctx.font = canvasFont('mono', 13);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineWidth = 3;

@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { ELEMENTS, type ElementId } from './elements';
 
 /**
@@ -30,15 +31,15 @@ export function describeEffect(element: ElementId, power = 1): string {
   const n = (x: number) => +x.toFixed(2);
   switch (element) {
     case 'fire':
-      return `Burn: ${pct(s.burn.dpsFraction * power)} of hit damage per second for ${s.burn.duration}s`;
+      return t('Burn: {pct} of hit damage per second for {s}s', { pct: pct(s.burn.dpsFraction * power), s: s.burn.duration });
     case 'water':
-      return `Chill: −${pct(Math.min(s.chill.maxSlow, s.chill.slow * power))} speed for ${s.chill.duration}s. ${s.chill.hitsToFreeze} in a row freeze for ${s.freeze.duration}s`;
+      return t('Chill: −{slow} speed for {s}s. {n} in a row freeze for {f}s', { slow: pct(Math.min(s.chill.maxSlow, s.chill.slow * power)), s: s.chill.duration, n: s.chill.hitsToFreeze, f: s.freeze.duration });
     case 'wood':
-      return `Root ground units ${n(s.root.duration * power)}s. Poison ${n(s.poison.dpsPerStack * power)}/s per stack, up to ${s.poison.maxStacks}`;
+      return t('Root ground units {root}s. Poison {dps}/s per stack, up to {max}', { root: n(s.root.duration * power), dps: n(s.poison.dpsPerStack * power), max: s.poison.maxStacks });
     case 'earth':
-      return `${pct(s.stun.chance * power)} stun chance (${s.stun.duration}s). −${n(s.armorBreak.perHit * power)} armor per hit, up to −${s.armorBreak.max}`;
+      return t('{chance} stun chance ({s}s). −{brk} armor per hit, up to −{max}', { chance: pct(s.stun.chance * power), s: s.stun.duration, brk: n(s.armorBreak.perHit * power), max: s.armorBreak.max });
     case 'metal':
-      return `Pierce: ignores ${pct(ELEMENTS.metal.armorPierce)} of armor. ${pct(ELEMENTS.metal.critChance * power)} crit chance for 2× damage`;
+      return t('Pierce: ignores {pierce} of armor. {crit} crit chance for 2× damage', { pierce: pct(ELEMENTS.metal.armorPierce), crit: pct(ELEMENTS.metal.critChance * power) });
   }
 }
 

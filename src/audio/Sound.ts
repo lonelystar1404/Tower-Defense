@@ -262,6 +262,16 @@ const RECIPES: Record<SoundId, (s: Sound, t: number) => void> = {
     s.notes(t, 'triangle', [880, 1320, 1760], 0.035, 0.12, 0.07);
     s.noise(t, 0.15, 'highpass', 4000, 2000, 0.06);
   },
+  // Bosses
+  boss: (s, t) => {
+    // Low alarm horn, three pulses
+    for (let i = 0; i < 3; i++) s.tone(t + i * 0.32, 'sawtooth', 110, 82, 0.28, 0.16, 700);
+    s.noise(t, 1, 'lowpass', 400, 60, 0.25);
+  },
+  'boss-phase': (s, t) => {
+    s.tone(t, 'sawtooth', 70, 140, 0.5, 0.2, 900);
+    s.noise(t, 0.45, 'bandpass', 300, 1800, 0.25, 2);
+  },
   // UI
   denied: (s, t) => {
     s.tone(t, 'square', 150, 140, 0.08, 0.1, 1500);

@@ -82,6 +82,8 @@ export interface LevelDef {
   prepTime?: number;
   /** Tiles where towers can't be built (buildings, canals, wreckage). */
   obstacles?: ObstacleDef[];
+  /** Multiplies every enemy's HP on this map (default 1): one knob to tune a whole map's difficulty. */
+  hpScale?: number;
   /** Tile where the hero starts; maps without it have no hero. */
   heroStart?: [number, number];
   /** Playable from the start, without clearing the map before it. */

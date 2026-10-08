@@ -13,6 +13,8 @@ export const CHROME_CANYON: LevelDef = {
   path: [[3, -1], [3, 9], [8, 9], [8, 2], [13, 2], [13, 9], [17, 9], [17, 4]],
   startGold: 170,
   lives: 20,
+  /** All enemy HP on this map (see LevelDef.hpScale), tuned with the balance bot under 70% lockdown. */
+  hpScale: 1.2,
   waves: [
     // 1. basics
     {
@@ -219,7 +221,7 @@ export const CHROME_CANYON: LevelDef = {
         { enemy: 'brute', count: 8, interval: 1.6, delay: 4, hpMult: 4.2 },
         { enemy: 'drone', count: 25, interval: 0.35, delay: 6, hpMult: 4.2 },
         { enemy: 'wyvern', count: 6, interval: 2, delay: 10, hpMult: 4.2 },
-        { enemy: 'splitter', count: 4, interval: 3, delay: 16, hpMult: 10.6, element: 'fire' },
+        { enemy: 'chimera', count: 1, interval: 1, delay: 16, hpMult: 9 },
       ],
       bonus: 0, rewardMult: 0.45,
     },

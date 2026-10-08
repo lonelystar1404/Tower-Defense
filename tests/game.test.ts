@@ -15,7 +15,7 @@ import { seededRng } from '../src/systems/rng';
 const STEP = 1 / 60;
 /** The real level with lockdown and battlefield effects off, so unit tests are exact. */
 const level: LevelDef = { ...LEVELS[0], lockFraction: 0, battlefieldBonus: 0 };
-/** The real level as players get it, lockdown included. */
+/** The real level as players get it (the first map has no lockdown). */
 const realLevel = LEVELS[0];
 const tower = (weapon: WeaponId, element: ElementId): TowerOption => ({ weapon, element });
 const metal = (weapon: WeaponId): TowerOption => tower(weapon, 'metal');
@@ -69,7 +69,9 @@ function heroAI(game: Game): void {
   hero.def.abilities.forEach((a, slot) => {
     if (!game.heroAbilityReady(slot)) return;
     const eff = a.effect;
-    if (a.target === 'global') {
+    if (eff.kind === 'repair') {
+      if (game.lives <= game.level.lives - 3) game.castHero(slot);
+    } else if (a.target === 'global') {
       if (alive.length >= 4) game.castHero(slot);
     } else if (a.target === 'self') {
       if (eff.kind === 'buff') {
@@ -148,7 +150,7 @@ function playBot(lvl: LevelDef, seed: number, plan: TowerOption[], maxTowers = I
     if ((upgrades && game.towers.length >= maxTowers) || mapFull) {
       for (;;) {
         const t = [...game.towers]
-          .filter((tw) => game.nextUpgradeCost(tw) !== null)
+          .filter((tw) => game.nextUpgradeCost(tw) !== null && !game.isLocked(tw))
           .sort((a, b) => a.level - b.level)[0];
         if (!t || !game.upgrade(t)) break;
       }
@@ -179,6 +181,17 @@ describe('buildSpawnQueue', () => {
     });
     expect(q.map((e) => e.time)).toEqual([0, 1, 2, 3]);
     expect(q.map((e) => e.hpMult)).toEqual([1, 3, 1, 3]);
+  });
+});
+
+describe('Map HP scale', () => {
+  it('multiplies every spawn group\'s HP', () => {
+    const wave = { groups: [{ enemy: 'grunt' as const, count: 2, interval: 1, hpMult: 2 }, { enemy: 'brute' as const, count: 1, interval: 1 }], bonus: 0 };
+    expect(buildSpawnQueue(wave, 1.5).map((e) => e.hpMult)).toEqual([3, 1.5, 3]);
+    const game = new Game({ ...corridor, hpScale: 0.5 });
+    game.startWave();
+    game.update(STEP);
+    expect(game.enemies[0].maxHp).toBe(ENEMIES.grunt.hp * 0.5);
   });
 });
 
@@ -580,7 +593,7 @@ describe('Battlefields', () => {
 
 // Full 25-wave simulations take several seconds each.
 describe('Balance: Neon District', { timeout: 60_000 }, () => {
-  it('is beatable by a sensible mixed build across many seeds, lockdown on', () => {
+  it('is beatable by a sensible mixed build across many seeds', () => {
     for (let seed = 1; seed <= 10; seed++) {
       const game = playBot(realLevel, seed, MIXED_PLAN);
       expect(game.phase, `seed ${seed}`).toBe('won');
@@ -627,6 +640,13 @@ describe('Balance: Neon District', { timeout: 60_000 }, () => {
     for (let seed = 1; seed <= 5; seed++) {
       const game = playBot(realLevel, seed, MIXED_PLAN, 16, true);
       expect(game.phase === 'won' || game.wavesStarted > 15, `seed ${seed}: fell on wave ${game.wavesStarted}`).toBe(true);
+    }
+  });
+
+  it('is an easy first map: 16 towers that upgrade win it', () => {
+    for (let seed = 1; seed <= 3; seed++) {
+      const game = playBot(realLevel, seed, MIXED_PLAN, 16, true);
+      expect(game.phase, `seed ${seed}: fell on wave ${game.wavesStarted}`).toBe('won');
     }
   });
 

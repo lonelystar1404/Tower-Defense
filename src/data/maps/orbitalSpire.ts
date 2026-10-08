@@ -13,6 +13,8 @@ export const ORBITAL_SPIRE: LevelDef = {
   path: [[-1, 10], [18, 10], [18, 1], [1, 1], [1, 7], [15, 7], [15, 4], [5, 4]],
   startGold: 180,
   lives: 25,
+  /** All enemy HP on this map (see LevelDef.hpScale), tuned with the balance bot under 70% lockdown. */
+  hpScale: 1.4,
   waves: [
     // 1. basics
     {
@@ -359,7 +361,7 @@ export const ORBITAL_SPIRE: LevelDef = {
         { enemy: 'swarm', count: 50, interval: 0.08, delay: 6, hpMult: 6.5 },
         { enemy: 'wyvern', count: 8, interval: 1.8, delay: 10, hpMult: 6.5 },
         { enemy: 'drone', count: 30, interval: 0.3, delay: 12, hpMult: 6.5 },
-        { enemy: 'brute', count: 4, interval: 3, delay: 20, hpMult: 16.2, element: 'fire' },
+        { enemy: 'leviathan', count: 1, interval: 1, delay: 20, hpMult: 7, element: 'fire' },
       ],
       bonus: 0, rewardMult: 0.3,
     },

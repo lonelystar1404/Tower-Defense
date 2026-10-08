@@ -10,6 +10,10 @@ export const NEON_DISTRICT: LevelDef = {
   path: [[-1, 2], [5, 2], [5, 8], [10, 8], [10, 3], [15, 3], [15, 9], [18, 9]],
   startGold: 150,
   lives: 20,
+  /** All enemy HP on this map (see LevelDef.hpScale). */
+  hpScale: 0.5, // first map: kept easy for new players
+  /** No lockdown on the first map: every tower can be built and upgraded while players learn. */
+  lockFraction: 0,
   waves: [
     // 1. Basics
     { groups: [{ enemy: 'grunt', count: 8, interval: 1.2 }], bonus: 20 },
@@ -293,7 +297,7 @@ export const NEON_DISTRICT: LevelDef = {
         { enemy: 'drone', count: 40, interval: 0.25, delay: 6, hpMult: 5.6 },
         { enemy: 'wyvern', count: 12, interval: 1.4, delay: 10, hpMult: 6.7, element: 'water' },
         { enemy: 'grunt', count: 40, interval: 0.25, delay: 14, hpMult: 6.7, element: 'wood' },
-        { enemy: 'brute', count: 5, interval: 3, delay: 22, hpMult: 13.4, element: 'fire' },
+        { enemy: 'colossus', count: 1, interval: 1, delay: 22, hpMult: 17.5, element: 'fire' },
         { enemy: 'wyvern', count: 4, interval: 3, delay: 26, hpMult: 13.4, element: 'metal' },
       ],
       bonus: 0, rewardMult: 0.35,

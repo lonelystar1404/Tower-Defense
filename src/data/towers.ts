@@ -53,9 +53,9 @@ const TOWER_NAMES: Partial<Record<`${ElementId}-${WeaponId}`, string>> = {
  */
 export const LOCKDOWN = {
   /** Share of all combos locked each wave (a level can override with `lockFraction`). */
-  fraction: 0.3,
-  minOpenPerWeapon: 2,
-  minOpenPerElement: 3,
+  fraction: 0.7,
+  minOpenPerWeapon: 1,
+  minOpenPerElement: 1,
 } as const;
 
 /** Fraction of the gold spent on a tower that selling it gives back. */

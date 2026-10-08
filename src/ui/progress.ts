@@ -1,3 +1,4 @@
+import type { HeroDef } from '../data/hero';
 import type { LevelDef } from '../data/levels';
 
 /** Which maps the player has cleared, saved in the browser when storage is available. */
@@ -33,4 +34,9 @@ export function markCleared(progress: Progress, levelId: string): Progress {
  */
 export function isUnlocked(levels: readonly LevelDef[], index: number, progress: Progress): boolean {
   return index === 0 || levels[index].unlocked === true || progress.cleared.includes(levels[index - 1].id);
+}
+
+/** Heroes with `unlockedBy` can be picked once that map is cleared; the rest always can. */
+export function isHeroUnlocked(def: HeroDef, progress: Progress): boolean {
+  return !def.unlockedBy || progress.cleared.includes(def.unlockedBy);
 }

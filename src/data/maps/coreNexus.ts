@@ -23,6 +23,8 @@ export const CORE_NEXUS: LevelDef = {
   ],
   startGold: 160,
   lives: 20,
+  /** All enemy HP on this map (see LevelDef.hpScale), tuned with the balance bot under 70% lockdown. */
+  hpScale: 0.88,
   heroStart: [12, 5],
   waves: [
     // 1. basics
@@ -323,7 +325,7 @@ export const CORE_NEXUS: LevelDef = {
         { enemy: 'wyvern', count: 18, interval: 1.8, delay: 10, hpMult: 8.2 },
         { enemy: 'jammer', count: 13, interval: 1.5, delay: 3, hpMult: 8.2 },
         { enemy: 'mirror', count: 13, interval: 1.5, delay: 7, hpMult: 8.2 },
-        { enemy: 'brute', count: 7, interval: 3, delay: 18, hpMult: 19.7, element: 'fire' },
+        { enemy: 'leviathan', count: 1, interval: 1, delay: 18, hpMult: 8 },
       ],
       bonus: 0, rewardMult: 0.3,
     },

@@ -38,14 +38,20 @@ describe('Maps', () => {
     expect(obstacleTiles(LEVELS[6].obstacles).length).toBeGreaterThan(15);
   });
 
+  it('have a hero from Zero Point (map 5) on', () => {
+    const zero = LEVELS.findIndex((l) => l.id === 'zero-point');
+    LEVELS.forEach((level, i) => expect(level.heroStart !== undefined, level.id).toBe(i >= zero));
+  });
+
   it('only use known enemies', () => {
     for (const level of LEVELS) for (const w of level.waves) for (const g of w.groups) expect(ENEMIES[g.enemy], g.enemy).toBeDefined();
   });
 
   it('each later map introduces its own new enemy types', () => {
-    expect(newEnemiesIn(1).sort()).toEqual(['medic', 'shielder']);
-    expect(newEnemiesIn(2).sort()).toEqual(['ghost', 'shard', 'splitter']);
-    expect(newEnemiesIn(3).sort()).toEqual(['carrier', 'phaser']);
+    // Bosses count too: Bulwark, Chimera, and Leviathan first appear on maps 2–4.
+    expect(newEnemiesIn(1).sort()).toEqual(['bulwark', 'medic', 'shielder']);
+    expect(newEnemiesIn(2).sort()).toEqual(['chimera', 'ghost', 'shard', 'splitter']);
+    expect(newEnemiesIn(3).sort()).toEqual(['carrier', 'leviathan', 'phaser']);
     expect(newEnemiesIn(4).sort()).toEqual(['jammer', 'mirror']);
     expect(newEnemiesIn(5).sort()).toEqual(['disruptor', 'prism']);
     expect(newEnemiesIn(6).sort()).toEqual(['burrower', 'warden']);

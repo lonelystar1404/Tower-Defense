@@ -1,3 +1,4 @@
+import { getLang } from '../i18n';
 /**
  * Cyberpunk palette for things drawn on the canvas that don't change with the battlefield.
  * Ground, pads, grid, and road colors are per battlefield (`src/data/battlefields.ts`);
@@ -23,5 +24,17 @@ export const THEME = {
   ok: '0,255,200',
   bad: '255,56,100',
   /** Floating text font. */
+  /** Default canvas text font; see `canvasFont` for language-aware stacks. */
   font: "bold 13px 'Share Tech Mono', ui-monospace, monospace",
 } as const;
+
+/**
+ * Canvas font for the current language: Orbitron ('display') / Share Tech Mono ('mono') for
+ * English and Spanish; system fonts for Vietnamese and Chinese, which those fonts can't show.
+ */
+export function canvasFont(kind: 'display' | 'mono', size: number, weight = 'bold'): string {
+  const lang = getLang();
+  if (lang === 'zh') return `${weight} ${size}px 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif`;
+  if (lang === 'vi') return `${weight} ${size}px system-ui, 'Segoe UI', Roboto, Arial, sans-serif`;
+  return kind === 'display' ? `${weight} ${size}px 'Orbitron', system-ui, sans-serif` : `${weight} ${size}px 'Share Tech Mono', ui-monospace, monospace`;
+}

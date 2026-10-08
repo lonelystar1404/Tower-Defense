@@ -1,7 +1,11 @@
-import { ENEMIES, type EnemyId } from '../data/enemies';
+import { ENEMIES, isBoss, type EnemyId } from '../data/enemies';
 import { LEVELS, type LevelDef } from '../data/levels';
 import { Path } from '../systems/path';
+import { HEROES } from '../data/hero';
+import { t } from '../i18n';
+import { dailyChallenge } from '../game/daily';
 import { isUnlocked, type Progress } from './progress';
+import { DAILY_SLOT, dailyBest, loadRun } from './saves';
 
 /** Enemy types that appear in a map, in order of first appearance. */
 export function enemiesIn(level: LevelDef): EnemyId[] {
@@ -11,6 +15,7 @@ export function enemiesIn(level: LevelDef): EnemyId[] {
     const a = ENEMIES[id].ability;
     if (a?.kind === 'split') add(a.into);
     if (a?.kind === 'spawn') add(a.child);
+    for (const phase of ENEMIES[id].phases ?? []) for (const action of phase.actions) if (action.kind === 'summon') add(action.enemy);
   };
   for (const w of level.waves) for (const g of w.groups) add(g.enemy);
   return seen;
@@ -22,18 +27,36 @@ export function newEnemiesIn(index: number): EnemyId[] {
   return enemiesIn(LEVELS[index]).filter((id) => !before.has(id));
 }
 
-/** Map select screen. Locked maps show what unlocks them. */
+export interface MapMenuActions {
+  /** Start a fresh run on `level` (replacing its saved run, if any). */
+  play(level: LevelDef): void;
+  /** Continue the run saved on `level`. */
+  resume(level: LevelDef): void;
+  /** Today's Daily Challenge: continue the saved attempt, or start a new one. */
+  daily(resume: boolean): void;
+  close(): void;
+}
+
+/**
+ * Map select screen: the Daily Challenge on top, then one card per map. Locked maps show what
+ * unlocks them; maps with a saved run offer Continue and New run.
+ */
 export class MapMenu {
   constructor(
     private readonly root: HTMLElement,
-    private readonly onPick: (level: LevelDef) => void,
-    private readonly onClose: () => void,
+    private readonly actions: MapMenuActions,
   ) {
     root.addEventListener('click', (ev) => {
       const el = ev.target as HTMLElement;
-      if (el.closest('[data-close]')) return this.onClose();
+      if (el.closest('[data-close]')) return this.actions.close();
+      if (el.closest('[data-daily]')) return this.actions.daily(el.closest<HTMLElement>('[data-daily]')!.dataset.daily === 'resume');
       const card = el.closest<HTMLElement>('[data-level]');
-      if (card && !card.classList.contains('locked')) this.onPick(LEVELS[Number(card.dataset.level)]);
+      if (!card || card.classList.contains('locked')) return;
+      const level = LEVELS[Number(card.dataset.level)];
+      // The card itself does the main action: continue a saved run, else start one.
+      if (el.closest('[data-new]')) this.actions.play(level);
+      else if (el.closest('[data-resume]') || card.dataset.saved) this.actions.resume(level);
+      else this.actions.play(level);
     });
   }
 
@@ -41,7 +64,15 @@ export class MapMenu {
     return !this.root.hidden;
   }
 
+  private last: { progress: Progress; canClose: boolean } | null = null;
+
+  /** Redraws the screen if it's open (after a language change). */
+  refresh(): void {
+    if (this.open && this.last) this.show(this.last.progress, this.last.canClose);
+  }
+
   show(progress: Progress, canClose: boolean): void {
+    this.last = { progress, canClose };
     const cards = LEVELS.map((level, i) => {
       const unlocked = isUnlocked(LEVELS, i, progress);
       const cleared = progress.cleared.includes(level.id);
@@ -49,32 +80,37 @@ export class MapMenu {
       const roster = enemiesIn(level)
         .map((id) => {
           const def = ENEMIES[id];
-          return `<li class="${fresh.has(id) ? 'new' : ''}" title="${def.description}">
-            <span class="dot" style="background:${def.color};color:${def.color}"></span>${def.name}${fresh.has(id) && i > 0 ? ' <b>NEW</b>' : ''}</li>`;
+          return `<li class="${fresh.has(id) ? 'new' : ''}" title="${t(def.description)}">
+            <span class="dot" style="background:${def.color};color:${def.color}"></span>${t(def.name)}${isBoss(def) ? ` <i>${t('BOSS')}</i>` : ''}${fresh.has(id) && i > 0 ? ` <b>${t('NEW')}</b>` : ''}</li>`;
         })
         .join('');
-      const status = cleared
-        ? '<span class="map-status cleared">✓ Cleared</span>'
-        : unlocked
-          ? '<span class="map-status open">Play</span>'
-          : `<span class="map-status locked">🔒 Clear ${LEVELS[i - 1].name} to unlock</span>`;
+      const save = unlocked ? loadRun(level.id) : null;
+      const status = cleared ? `<span class="map-status cleared">✓ ${t('Cleared')}</span>` : '';
+      const actions = !unlocked
+        ? `<span class="map-status locked">🔒 ${t('Clear {map} to unlock', { map: t(LEVELS[i - 1].name) })}</span>`
+        : save
+          ? `<button class="primary" data-resume>${t('Continue · wave {n}/{total}', { n: save.snapshot.wavesStarted + 1, total: level.waves.length })}</button>
+             <button data-new>${t('New run')}</button>
+             <span class="map-save-lives">${t('{n} ♥ left', { n: save.snapshot.lives })}</span>`
+          : `<button class="primary" data-new>${t('Play')}</button>`;
       return `
-        <button class="map-card ${unlocked ? '' : 'locked'}" data-level="${i}" ${unlocked ? '' : 'aria-disabled="true"'}>
+        <div class="map-card ${unlocked ? '' : 'locked'}" data-level="${i}" ${save ? 'data-saved="1"' : ''} ${unlocked ? '' : 'aria-disabled="true"'}>
           <canvas width="200" height="120" data-preview="${i}"></canvas>
           <div class="map-info">
-            <div class="map-title"><span>${i + 1}. ${level.name}</span><span class="map-waves">${level.waves.length} waves</span></div>
-            <p>${level.description}</p>
+            <div class="map-title"><span>${i + 1}. ${t(level.name)}</span><span class="map-waves">${t('{n} waves', { n: level.waves.length })}</span></div>
+            <p>${t(level.description)}</p>
             <ul class="map-roster">${roster}</ul>
-            ${status}
+            <div class="map-actions">${actions}${status}</div>
           </div>
-        </button>`;
+        </div>`;
     }).join('');
     this.root.innerHTML = `
       <div class="menu-card">
         <div class="menu-head">
-          <h2>Select map</h2>
-          ${canClose ? '<button data-close>Back to game</button>' : ''}
+          <h2>${t('Select map')}</h2>
+          ${canClose ? `<button data-close>${t('Back to game')}</button>` : ''}
         </div>
+        ${dailyCard()}
         <div class="map-grid">${cards}</div>
       </div>`;
     this.root.querySelectorAll<HTMLCanvasElement>('[data-preview]').forEach((c) => drawPreview(c, LEVELS[Number(c.dataset.preview)]));
@@ -84,6 +120,27 @@ export class MapMenu {
   hide(): void {
     this.root.hidden = true;
   }
+}
+
+/** Today's Daily Challenge: map, hero, best score, and Play / Continue. */
+function dailyCard(): string {
+  const daily = dailyChallenge();
+  const save = loadRun(DAILY_SLOT, daily.date);
+  const best = dailyBest(daily.date);
+  const map = `<b>${t(daily.level.name)}</b>`;
+  const buttons = save
+    ? `<button class="primary" data-daily="resume">${t('Continue · wave {n}/{total}', { n: save.snapshot.wavesStarted + 1, total: daily.level.waves.length })}</button>
+       <button data-daily="new">${t('New attempt')}</button>`
+    : `<button class="primary" data-daily="new">${t('Play daily')}</button>`;
+  return `
+    <div class="daily-card">
+      <div>
+        <h3>${t('Daily Challenge')} <span>${daily.date}</span></h3>
+        <p>${daily.level.heroStart ? t('{map} with {hero}.', { map, hero: HEROES[daily.hero].callsign }) : `${map}.`} ${t('Same battlefields and lockdowns for everyone today: compare scores with friends.')}
+        ${best ? t('Your best today: {score}.', { score: `<b class="best">${best.toLocaleString()}</b>` }) : ''}</p>
+      </div>
+      <div class="daily-actions">${buttons}</div>
+    </div>`;
 }
 
 /** Tiny picture of the map's road, obstacles, and core. */

@@ -13,6 +13,8 @@ export const ZERO_POINT: LevelDef = {
   path: [[-1, 6], [3, 6], [3, 2], [8, 2], [8, 9], [12, 9], [12, 3], [16, 3], [16, 8], [18, 8]],
   startGold: 170,
   lives: 20,
+  /** All enemy HP on this map (see LevelDef.hpScale), tuned with the balance bot under 70% lockdown. */
+  hpScale: 1.15,
   heroStart: [10, 5],
   // Temporarily playable without clearing the earlier maps. Remove to restore the unlock order.
   unlocked: true,
@@ -284,7 +286,7 @@ export const ZERO_POINT: LevelDef = {
         { enemy: 'phaser', count: 14, interval: 0.6, delay: 8, hpMult: 11.0 },
         { enemy: 'carrier', count: 3, interval: 3, delay: 10, hpMult: 11.0 },
         { enemy: 'brute', count: 8, interval: 1.4, delay: 12, hpMult: 11.0 },
-        { enemy: 'brute', count: 3, interval: 3, delay: 20, hpMult: 24.3, element: 'fire' },
+        { enemy: 'colossus', count: 1, interval: 1, delay: 20, hpMult: 20 },
       ],
       bonus: 0, rewardMult: 0.35,
     },

@@ -43,14 +43,14 @@ function run(g: Game, seconds: number): void {
 const hurt = (e: Enemy) => e.hp < e.maxHp;
 
 describe('Heroes', () => {
-  it('five heroes, each with a full profile and four abilities unlocking at 1, 3, 5, 8', () => {
-    expect(HERO_IDS).toHaveLength(5);
+  it('ten heroes, each with a full profile and four abilities unlocking at 1, 3, 5, 8', () => {
+    expect(HERO_IDS).toHaveLength(10);
     for (const id of HERO_IDS) {
       const h = HEROES[id];
       for (const field of [h.name, h.pronouns, h.race, h.origin, h.role, h.bio]) expect(field.length).toBeGreaterThan(0);
       expect(h.abilities.map((a) => a.unlockLevel)).toEqual([1, 3, 5, 8]);
     }
-    expect(new Set(HERO_IDS.map((id) => HEROES[id].role)).size).toBe(5);
+    expect(new Set(HERO_IDS.map((id) => HEROES[id].role)).size).toBe(10);
   });
 
   it('the chosen hero is the one on the map; maps without heroStart have none', () => {
@@ -122,9 +122,11 @@ describe('Heroes', () => {
 });
 
 describe('Hero elements', () => {
-  it('each hero has its own element', () => {
-    const elements = HERO_IDS.map((id) => HEROES[id].element);
-    expect(new Set(elements).size).toBe(5);
+  it('each roster of five covers every element once', () => {
+    const first = HERO_IDS.filter((id) => !HEROES[id].unlockedBy).map((id) => HEROES[id].element);
+    const second = HERO_IDS.filter((id) => HEROES[id].unlockedBy).map((id) => HEROES[id].element);
+    expect(new Set(first).size).toBe(5);
+    expect(new Set(second).size).toBe(5);
     expect(HEROES.vex.element).toBe('water');
     expect(HEROES.mateo.element).toBe('earth');
     expect(HEROES.leila.element).toBe('metal');
@@ -311,5 +313,95 @@ describe('Echo (Summoner)', () => {
     expect(e.status.armorBreak).toBeGreaterThanOrEqual(4);
     g.castHero(3, e.x, e.y);
     expect(g.summons.length).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('Second roster (passives)', () => {
+  it('unlocks by clearing Core Nexus; each has a passive and four icons', async () => {
+    const { isHeroUnlocked } = await import('../src/ui/progress');
+    const second = HERO_IDS.filter((id) => HEROES[id].unlockedBy);
+    expect(second.sort()).toEqual(['ines', 'kaito', 'nalani', 'rua', 'zeynep']);
+    for (const id of second) {
+      const def = HEROES[id];
+      expect(def.unlockedBy).toBe('core-nexus');
+      expect(def.passive?.description.length).toBeGreaterThan(0);
+      expect(isHeroUnlocked(def, { cleared: [] })).toBe(false);
+      expect(isHeroUnlocked(def, { cleared: ['core-nexus'] })).toBe(true);
+    }
+    expect(isHeroUnlocked(HEROES.vex, { cleared: [] })).toBe(true);
+  });
+
+  it('Execution (Ronin) finishes a weakened enemy, but not a boss', () => {
+    // Distance 6 on the corridor puts an enemy one tile from the hero.
+    const g = game('kaito', () => 1, 1);
+    const e = place(g, 'brute', 6);
+    freeze(e);
+    e.hp = e.maxHp * 0.12 + 5;
+    run(g, 1.5);
+    expect(e.alive).toBe(false);
+    const g2 = game('kaito', () => 1, 1);
+    const boss = place(g2, 'colossus', 6, 1);
+    freeze(boss);
+    boss.phase = 2;
+    boss.hp = boss.maxHp * 0.1;
+    run(g2, 1);
+    expect(boss.alive).toBe(true);
+  });
+
+  it('Undertow (Tide) slows enemies near her only', () => {
+    const g = game('nalani', () => 1, 1);
+    const hero = g.hero!;
+    const near = place(g, 'grunt', hero.x - 0.5);
+    const far = place(g, 'grunt', hero.x + 5);
+    near.hp = far.hp = 1e9;
+    g.update(STEP);
+    expect(near.speed).toBeCloseTo(ENEMIES.grunt.speed * 0.75);
+    expect(far.speed).toBeCloseTo(ENEMIES.grunt.speed);
+  });
+
+  it('Field Engineer (Forge) boosts nearby towers; Power Surge stacks on top; Core Patch restores lives', () => {
+    const g = game('ines');
+    const near = g.build(5, 4, { weapon: 'cannon', element: 'metal' })!;
+    const far = g.build(12, 4, { weapon: 'cannon', element: 'metal' })!;
+    expect(g.towerDamageMult(near)).toBeCloseTo(1.2);
+    expect(g.towerDamageMult(far)).toBe(1);
+    g.castHero(1, near.x, near.y);
+    expect(g.towerDamageMult(near)).toBeCloseTo(1.2 * 1.4);
+    g.lives = 10;
+    g.castHero(3);
+    expect(g.lives).toBe(14);
+    g.hero!.cooldowns[3] = 0;
+    g.lives = 19;
+    g.castHero(3);
+    expect(g.lives).toBe(20);
+  });
+
+  it('Overgrowth (Rua) roots and poisons what he hits; other heroes apply no effects', () => {
+    const hit = (id: HeroId) => {
+      const g = game(id, () => 1, 1);
+      const e = place(g, 'grunt', 6);
+      freeze(e);
+      run(g, 1);
+      return e.status;
+    };
+    expect(hit('rua').poisonStacks).toBeGreaterThan(0);
+    expect(hit('echo').poisonStacks).toBe(0);
+  });
+
+  it('Bounty (Flare) pays extra for kills near her', () => {
+    const gold = (id: HeroId) => {
+      const g = game(id, () => 1, 1);
+      const e = place(g, 'brute', 4, 1);
+      freeze(e);
+      e.x = g.hero!.x + 0.5;
+      e.y = g.hero!.y;
+      e.hp = 1;
+      const before = g.gold;
+      run(g, 1);
+      expect(e.alive).toBe(false);
+      return g.gold - before;
+    };
+    expect(gold('zeynep')).toBe(ENEMIES.brute.reward + Math.round(ENEMIES.brute.reward * 0.3));
+    expect(gold('vex')).toBe(ENEMIES.brute.reward);
   });
 });

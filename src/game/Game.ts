@@ -1,5 +1,5 @@
-import { BATTLEFIELD_BONUS, BATTLEFIELD_IDS, BATTLEFIELDS, type BattlefieldDef } from '../data/battlefields';
-import { ENEMIES, type EnemyId } from '../data/enemies';
+import { BATTLEFIELD_BONUS, BATTLEFIELD_IDS, BATTLEFIELDS, type BattlefieldDef, type BattlefieldId } from '../data/battlefields';
+import { ENEMIES, isBoss, type EnemyId } from '../data/enemies';
 import { PREP_TIME, obstacleTiles, type LevelDef, type WaveDef } from '../data/levels';
 import type { WeaponId } from '../data/weapons';
 import { LOCKDOWN, MAX_TOWER_LEVEL, SELL_REFUND, towerCost, towerStats, upgradeCost, type TowerOption } from '../data/towers';
@@ -12,11 +12,12 @@ import { COMBO_NUMBERS, COMBOS, type ComboId } from '../data/combos';
 import { battlefieldMultiplier, computeDamage, elementMultiplier } from '../systems/damage';
 import { applyHit } from '../systems/combat';
 import { ELEMENTS, OVERCOMES, type ElementId } from '../data/elements';
-import { tickStatus } from '../systems/status';
+import { applyElementEffect, newStatus, tickStatus } from '../systems/status';
 import { comboKey, rollLocks, type ComboKey } from '../systems/lockdown';
 import { Path } from '../systems/path';
-import type { Rng } from '../systems/rng';
-import { chainTargets, selectTarget, selectTargets } from '../systems/targeting';
+import { seededRng, type Rng } from '../systems/rng';
+import { t } from '../i18n';
+import { chainTargets, selectTarget, selectTargets, type TargetPriority } from '../systems/targeting';
 
 /**
  * All game state and rules for one level. Knows nothing about the DOM or canvas, so it runs
@@ -63,7 +64,9 @@ export type GameSound =
   | 'pulse-blast' | 'emp' | 'cryo' | 'firewall' | 'orbital-call' | 'orbital-impact'
   | 'leap' | 'buff' | 'pierce' | 'mark' | 'chain' | 'time-lock' | 'summon' | 'overclock' | 'knockback'
   /** Element combos */
-  | 'combo';
+  | 'combo'
+  /** Bosses: arrival and each new phase */
+  | 'boss' | 'boss-phase';
 
 /** Who dealt damage or got a kill, for the end-of-map breakdown and balance checks. */
 export type DamageSource = { kind: 'hero' } | { kind: 'tower'; weapon: WeaponId; element: ElementId } | { kind: 'status' };
@@ -127,11 +130,43 @@ export interface SpawnEntry {
   rewardMult: number;
 }
 
-export function buildSpawnQueue(wave: WaveDef): SpawnEntry[] {
+export interface GameOptions {
+  /**
+   * Fixes each wave's lockdown and battlefield from this seed alone (the Daily Challenge), so
+   * every player gets the same conditions however the fights go. Without it they come from `rng`.
+   */
+  conditionsSeed?: number;
+}
+
+/**
+ * Everything needed to continue a run from the start of its next wave (saved between waves).
+ * Plain JSON. Bump `v` when the shape changes; old saves are then dropped.
+ */
+export interface GameSnapshot {
+  v: 1;
+  levelId: string;
+  heroId?: HeroId;
+  conditionsSeed?: number;
+  wavesStarted: number;
+  gold: number;
+  lives: number;
+  time: number;
+  lastWaveBonus: number;
+  battlefield: BattlefieldId;
+  locked: ComboKey[];
+  towers: { col: number; row: number; weapon: WeaponId; element: ElementId; level: number; spent: number; priority: TargetPriority }[];
+  hero?: { x: number; y: number; level: number; kills: number };
+  stats: GameStats;
+}
+
+export const SNAPSHOT_VERSION = 1;
+
+/** Spawns for one wave, in time order. `hpScale` multiplies every group's HP (LevelDef.hpScale). */
+export function buildSpawnQueue(wave: WaveDef, hpScale = 1): SpawnEntry[] {
   const queue: SpawnEntry[] = [];
   for (const g of wave.groups) {
     for (let i = 0; i < g.count; i++) {
-      queue.push({ time: (g.delay ?? 0) + i * g.interval, enemy: g.enemy, hpMult: g.hpMult ?? 1, element: g.element, rewardMult: wave.rewardMult ?? 1 });
+      queue.push({ time: (g.delay ?? 0) + i * g.interval, enemy: g.enemy, hpMult: (g.hpMult ?? 1) * hpScale, element: g.element, rewardMult: wave.rewardMult ?? 1 });
     }
   }
   return queue.sort((a, b) => a.time - b.time);
@@ -178,7 +213,7 @@ export class Game {
   strikes: Strike[] = [];
   summons: Summon[] = [];
   /** Damage, kills, and combos by source this game. */
-  readonly stats: GameStats = {
+  stats: GameStats = {
     damage: { hero: 0, towers: 0, status: 0, byWeapon: {}, byElement: {} },
     kills: { hero: 0, towers: 0, status: 0, byWeapon: {}, byElement: {} },
     combos: {},
@@ -187,7 +222,11 @@ export class Game {
   private spawnQueue: SpawnEntry[] = [];
   private waveTime = 0;
 
-  constructor(readonly level: LevelDef, private readonly rng: Rng = Math.random, heroId: HeroId = 'vex') {
+  /** See GameOptions. */
+  readonly conditionsSeed: number | undefined;
+
+  constructor(readonly level: LevelDef, private readonly rng: Rng = Math.random, heroId: HeroId = 'vex', options: GameOptions = {}) {
+    this.conditionsSeed = options.conditionsSeed;
     this.path = new Path(level.path);
     this.airPath = new Path(level.airPath ?? [level.path[0], level.path[level.path.length - 1]]);
     this.pathTiles = new Set(this.path.tiles().map(([c, r]) => `${c},${r}`));
@@ -196,6 +235,59 @@ export class Game {
     this.lives = level.lives;
     this.rollWaveConditions();
     this.hero = level.heroStart ? new Hero(HEROES[heroId], level.heroStart[0] + 0.5, level.heroStart[1] + 0.5) : null;
+  }
+
+  /**
+   * Continues a run saved with `snapshot()`: same towers, gold, lives, hero level, stats, and
+   * the conditions rolled for the next wave. The countdown waits for Ready.
+   */
+  static restore(level: LevelDef, snap: GameSnapshot, rng: Rng = Math.random): Game {
+    const game = new Game(level, rng, snap.heroId, { conditionsSeed: snap.conditionsSeed });
+    game.wavesStarted = snap.wavesStarted;
+    game.gold = snap.gold;
+    game.lives = snap.lives;
+    game.time = snap.time;
+    game.lastWaveBonus = snap.lastWaveBonus;
+    game.battlefield = BATTLEFIELDS[snap.battlefield];
+    game.locked = new Set(snap.locked);
+    for (const t of snap.towers) {
+      const option = { weapon: t.weapon, element: t.element };
+      const tower = new Tower(t.col, t.row, option, t.spent);
+      tower.level = t.level;
+      tower.stats = towerStats(option, t.level);
+      tower.priority = t.priority;
+      game.towers.push(tower);
+    }
+    if (game.hero && snap.hero) {
+      game.hero.x = game.hero.targetX = snap.hero.x;
+      game.hero.y = game.hero.targetY = snap.hero.y;
+      game.hero.level = snap.hero.level;
+      game.hero.kills = snap.hero.kills;
+    }
+    game.stats = structuredClone(snap.stats);
+    return game;
+  }
+
+  /** Saveable state between waves; null during a wave, after the game, or before wave 1. */
+  snapshot(): GameSnapshot | null {
+    if (this.phase !== 'build' || this.wavesStarted === 0) return null;
+    const hero = this.hero;
+    return {
+      v: SNAPSHOT_VERSION,
+      levelId: this.level.id,
+      heroId: hero?.def.id,
+      conditionsSeed: this.conditionsSeed,
+      wavesStarted: this.wavesStarted,
+      gold: this.gold,
+      lives: this.lives,
+      time: this.time,
+      lastWaveBonus: this.lastWaveBonus,
+      battlefield: this.battlefield.id,
+      locked: [...this.locked],
+      towers: this.towers.map((t) => ({ col: t.col, row: t.row, weapon: t.weapon, element: t.element, level: t.level, spent: t.spent, priority: t.priority })),
+      hero: hero ? { x: hero.x, y: hero.y, level: hero.level, kills: hero.kills } : undefined,
+      stats: structuredClone(this.stats),
+    };
   }
 
   /** Damage shift on the current battlefield (0 when the level turns battlefields off). */
@@ -252,17 +344,20 @@ export class Game {
     return upgradeCost({ weapon: tower.weapon, element: tower.element }, tower.level + 1);
   }
 
-  /** Raises the tower one level if affordable. Allowed any time, like building. */
+  /**
+   * Raises the tower one level if affordable. Allowed any time, like building, except while
+   * the tower's combo is locked (lockdown blocks upgrades as well as new builds).
+   */
   upgrade(tower: Tower): boolean {
     const cost = this.nextUpgradeCost(tower);
-    if (this.over || cost === null || this.gold < cost || !this.towers.includes(tower)) return false;
+    if (this.over || cost === null || this.gold < cost || !this.towers.includes(tower) || this.isLocked(tower)) return false;
     this.gold -= cost;
     tower.spent += cost;
     tower.level++;
     this.sound('upgrade');
     tower.stats = towerStats({ weapon: tower.weapon, element: tower.element }, tower.level);
     this.effects.push({ kind: 'blast', x: tower.x, y: tower.y, radius: 0.8, element: tower.element, ttl: 0.4, maxTtl: 0.4, color: '' });
-    this.addText(tower.x, tower.y - 0.5, `LV ${tower.level}`, '#00f0ff');
+    this.addText(tower.x, tower.y - 0.5, `${t('LV')} ${tower.level}`, '#00f0ff');
     return true;
   }
 
@@ -289,7 +384,7 @@ export class Game {
   startWave(): boolean {
     if (this.phase !== 'build' || this.wavesStarted >= this.totalWaves) return false;
     this.prepRemaining = null;
-    this.spawnQueue = buildSpawnQueue(this.level.waves[this.wavesStarted]);
+    this.spawnQueue = buildSpawnQueue(this.level.waves[this.wavesStarted], this.level.hpScale);
     this.wavesStarted++;
     this.waveTime = 0;
     this.phase = 'wave';
@@ -331,6 +426,7 @@ export class Game {
     // Warden armor is recomputed from scratch every tick.
     for (const e of this.enemies) e.bonusArmor = 0;
     for (const e of this.enemies) {
+      if (e.def.phases && e.alive) this.updateBoss(e);
       const ability = e.def.ability;
       if (!ability || !e.alive) continue;
       switch (ability.kind) {
@@ -382,7 +478,7 @@ export class Game {
             this.effects.push({ kind: 'beam', x: e.x, y: e.y, points: [{ x: e.x, y: e.y }, { x: t.x, y: t.y }], element: 'metal', ttl: 0.25, maxTtl: 0.25, color: e.def.color });
           }
           this.effects.push({ kind: 'pulse', x: e.x, y: e.y, radius: ability.radius, ttl: 0.5, maxTtl: 0.5, color: e.def.color });
-          this.addText(e.x, e.y - 0.5, 'DISRUPT', e.def.color);
+          this.addText(e.x, e.y - 0.5, t('DISRUPT'), e.def.color);
           this.sound('disrupt');
           break;
         }
@@ -421,6 +517,42 @@ export class Game {
     }
   }
 
+  /** Starts every boss phase whose HP threshold has been reached (several at once after a big hit). */
+  private updateBoss(e: Enemy): void {
+    const phases = e.def.phases!;
+    while (e.phase < phases.length && e.hp <= e.maxHp * phases[e.phase].at) {
+      const phase = phases[e.phase++];
+      let label = t(phase.name).toUpperCase();
+      for (const action of phase.actions) {
+        switch (action.kind) {
+          case 'summon':
+            this.release(e, action.enemy, action.count);
+            break;
+          case 'shield':
+            e.maxShield = e.shield = e.maxHp * action.fraction;
+            break;
+          case 'enrage':
+            e.speedMult = action.speed;
+            break;
+          case 'shift':
+            e.element = e.element ? OVERCOMES[e.element] : 'water';
+            label += `: ${t(ELEMENTS[e.element].name).toUpperCase()}`;
+            break;
+          case 'cleanse': {
+            // Armor break is permanent, so it survives the cleanse.
+            const armorBreak = e.status.armorBreak;
+            Object.assign(e.status, newStatus(), { armorBreak });
+            break;
+          }
+        }
+      }
+      this.addText(e.x, e.y - 0.9, label, e.def.color);
+      this.effects.push({ kind: 'pulse', x: e.x, y: e.y, radius: 1.4, ttl: 0.6, maxTtl: 0.6, color: e.def.color });
+      this.effects.push({ kind: 'shake', x: 0, y: 0, ttl: 0.25, maxTtl: 0.25, color: '' });
+      this.sound('boss-phase');
+    }
+  }
+
   /**
    * Releases `count` enemies of type `child` from `parent` (Splitter shards, Carrier drones).
    * They keep the parent's HP multiplier and reward scaling; same-route children start where
@@ -451,6 +583,7 @@ export class Game {
       const enemy = new Enemy(def, def.movement === 'air' ? this.airPath : this.path, entry.hpMult, entry.element);
       enemy.reward = Math.max(1, Math.round(def.reward * entry.rewardMult));
       this.enemies.push(enemy);
+      if (isBoss(def)) this.sound('boss');
     }
   }
 
@@ -589,25 +722,25 @@ export class Game {
     if (enemy.burrowed) return;
     const hadShield = enemy.shield > 0;
     const result = applyHit(enemy, tower.stats, tower.element, this.rng, {
-      scale,
+      scale: scale * this.towerDamageMult(tower),
       battlefield: this.battlefield,
       battlefieldBonus: this.battlefieldBonus,
     });
     if (hadShield && enemy.shield <= 0 && enemy.alive) {
-      this.addText(enemy.x, enemy.y - 0.5, 'SHIELD DOWN', '#4dd2ff');
+      this.addText(enemy.x, enemy.y - 0.5, t('SHIELD DOWN'), '#4dd2ff');
       this.sound('shield-break');
     }
     if (result.crit) {
-      this.addText(enemy.x, enemy.y - 0.35, 'CRIT!', '#ff2bd6');
+      this.addText(enemy.x, enemy.y - 0.35, t('CRIT!'), '#ff2bd6');
       this.sound('crit');
     }
     if (result.matchup !== 1 && this.time - enemy.lastMatchupPopup > 1.2) {
       enemy.lastMatchupPopup = this.time;
       const weak = result.matchup > 1;
-      this.addText(enemy.x, enemy.y + 0.45, weak ? 'WEAK!' : 'RESIST', weak ? '#7dffc0' : '#8b93b8');
+      this.addText(enemy.x, enemy.y + 0.45, weak ? t('WEAK!') : t('RESIST'), weak ? '#7dffc0' : '#8b93b8');
     }
     if (result.froze) {
-      this.addText(enemy.x, enemy.y - 0.35, 'FREEZE!', '#00e5ff');
+      this.addText(enemy.x, enemy.y - 0.35, t('FREEZE!'), '#00e5ff');
       this.sound('freeze');
     }
     if (result.stunned) {
@@ -620,13 +753,22 @@ export class Game {
     if (result.killed) this.reward(enemy, source);
   }
 
+  /** Hero boosts on a tower's damage: Power Surge while it lasts, and a Field Engineer standing close. */
+  towerDamageMult(tower: Tower): number {
+    let mult = tower.boostTime > 0 ? tower.boostDamage : 1;
+    const hero = this.hero;
+    const p = hero?.def.passive?.effect;
+    if (hero && p?.kind === 'tower-aura' && (tower.x - hero.x) ** 2 + (tower.y - hero.y) ** 2 <= p.radius ** 2) mult *= 1 + p.damage;
+    return mult;
+  }
+
   /** Feedback and follow-ups for an element combo (Steam splash, Wildfire spread). */
   private combo(id: ComboId, enemy: Enemy, steamBurst: number, source: DamageSource): void {
     const def = COMBOS[id];
     this.stats.combos[id] = (this.stats.combos[id] ?? 0) + 1;
     if (this.time - enemy.lastComboPopup > 0.5) {
       enemy.lastComboPopup = this.time;
-      this.addText(enemy.x, enemy.y - 0.65, `${def.name.toUpperCase()}!`, def.color);
+      this.addText(enemy.x, enemy.y - 0.65, `${t(def.name).toUpperCase()}!`, def.color);
       this.sound('combo');
     }
     switch (id) {
@@ -854,11 +996,21 @@ export class Game {
         }
         this.sound('summon');
         break;
+      case 'repair': {
+        const healed = Math.min(eff.lives, this.level.lives - this.lives);
+        this.lives += healed;
+        const core = this.path.points[this.path.points.length - 1];
+        this.effects.push({ kind: 'pulse', x: core.x, y: core.y, radius: 1.5, ttl: 0.7, maxTtl: 0.7, color });
+        this.addText(core.x, core.y - 0.6, healed > 0 ? `+${healed} ♥` : t('CORE OK'), '#7dffc0');
+        this.sound('heal');
+        break;
+      }
       case 'tower-boost':
         for (const t of this.towers) {
           if ((t.x - x) ** 2 + (t.y - y) ** 2 > eff.radius ** 2) continue;
           t.boostTime = eff.duration;
-          t.boostMult = eff.fireRate;
+          t.boostMult = eff.fireRate ?? 1;
+          t.boostDamage = eff.damage ?? 1;
         }
         this.effects.push({ kind: 'pulse', x, y, radius: eff.radius, ttl: 0.5, maxTtl: 0.5, color });
         this.sound('overclock');
@@ -882,6 +1034,14 @@ export class Game {
       hero.effects[i] = Math.max(0, hero.effects[i] - dt);
     }
     hero.buffTime = Math.max(0, hero.buffTime - dt);
+    // Undertow: enemies near the hero are slowed, like standing in a slow zone.
+    const passive = hero.def.passive?.effect;
+    if (passive?.kind === 'slow-aura') {
+      for (const e of this.heroTargetsWithin(hero.x, hero.y, passive.radius)) {
+        e.status.chillSlow = Math.max(e.status.chillTime > 0 ? e.status.chillSlow : 0, passive.slow);
+        e.status.chillTime = Math.max(e.status.chillTime, 0.15);
+      }
+    }
     const buffed = hero.buffTime > 0;
 
     if (hero.moving) {
@@ -959,7 +1119,7 @@ export class Game {
     if (matchup !== 1 && this.time - enemy.lastMatchupPopup > 1.2) {
       enemy.lastMatchupPopup = this.time;
       const weak = matchup > 1;
-      this.addText(enemy.x, enemy.y + 0.45, weak ? 'WEAK!' : 'RESIST', weak ? '#7dffc0' : '#8b93b8');
+      this.addText(enemy.x, enemy.y + 0.45, weak ? t('WEAK!') : t('RESIST'), weak ? '#7dffc0' : '#8b93b8');
     }
     return matchup * battlefieldMultiplier(element, enemy.element, this.battlefield, this.battlefieldBonus);
   }
@@ -973,7 +1133,7 @@ export class Game {
     if (enemy.def.ability?.kind === 'mirror') {
       if (this.time - enemy.lastMatchupPopup > 1.2) {
         enemy.lastMatchupPopup = this.time;
-        this.addText(enemy.x, enemy.y + 0.45, 'IMMUNE', '#e6f0ff');
+        this.addText(enemy.x, enemy.y + 0.45, t('IMMUNE'), '#e6f0ff');
       }
       return;
     }
@@ -984,7 +1144,24 @@ export class Game {
       armorBreak: enemy.status.armorBreak, armorPierce: atk?.armorPierce ?? 0,
     });
     this.track('damage', HERO_SOURCE, enemy.takeDamage(dmg));
+    if (enemy.alive) this.heroOnHit(enemy, dmg);
     if (!enemy.alive) this.reward(enemy, HERO_SOURCE);
+  }
+
+  /** Passives that trigger on a hero hit that didn't kill: Execution and Overgrowth. */
+  private heroOnHit(enemy: Enemy, dmg: number): void {
+    const hero = this.hero!;
+    const p = hero.def.passive?.effect;
+    if (!p || enemy.shield > 0) return;
+    if (p.kind === 'execute' && !isBoss(enemy.def) && enemy.hp <= enemy.maxHp * p.threshold) {
+      this.track('damage', HERO_SOURCE, enemy.takeDamage(enemy.hp / (enemy.markTime > 0 ? 1 + enemy.markAmp : 1)));
+      if (this.time - enemy.lastMatchupPopup > 0.6) {
+        enemy.lastMatchupPopup = this.time;
+        this.addText(enemy.x, enemy.y - 0.5, t('EXECUTE'), hero.def.color);
+      }
+    } else if (p.kind === 'element-hits') {
+      applyElementEffect(enemy.status, hero.def.element, dmg, enemy.movement, this.rng, p.power);
+    }
   }
 
   /** Living enemies within `radius` of (x, y) that the hero can affect (not Mirrors). */
@@ -1033,7 +1210,7 @@ export class Game {
     hero.kills++;
     while (hero.level < MAX_HERO_LEVEL && hero.kills >= HERO_LEVELS.levelKills[hero.level - 1]) {
       hero.level++;
-      this.addText(hero.x, hero.y - 0.6, `LEVEL ${hero.level}`, hero.def.color);
+      this.addText(hero.x, hero.y - 0.6, t('LEVEL {n}', { n: hero.level }), hero.def.color);
       this.effects.push({ kind: 'pulse', x: hero.x, y: hero.y, radius: 1.2, ttl: 0.6, maxTtl: 0.6, color: hero.def.color });
       this.sound('level-up');
     }
@@ -1049,8 +1226,12 @@ export class Game {
       this.effects.push({ kind: 'pulse', x: enemy.x, y: enemy.y, radius: 0.7, ttl: 0.35, maxTtl: 0.35, color: enemy.def.color });
       this.sound('split');
     }
-    this.gold += enemy.reward;
-    this.addText(enemy.x, enemy.y - 0.1, `+${enemy.reward}`, '#ffe600');
+    // Bounty: kills near the hero pay extra.
+    const hero = this.hero;
+    const p = hero?.def.passive?.effect;
+    const bonus = hero && p?.kind === 'bounty' && (enemy.x - hero.x) ** 2 + (enemy.y - hero.y) ** 2 <= p.radius ** 2 ? Math.max(1, Math.round(enemy.reward * p.gold)) : 0;
+    this.gold += enemy.reward + bonus;
+    this.addText(enemy.x, enemy.y - 0.1, `+${enemy.reward + bonus}`, '#ffe600');
   }
 
   private updateEffects(dt: number): void {
@@ -1075,10 +1256,12 @@ export class Game {
 
   /** New lockdown and a new battlefield (never the same twice in a row) for the coming wave. */
   private rollWaveConditions(): void {
-    this.locked = rollLocks(this.rng, this.level.lockFraction ?? LOCKDOWN.fraction);
+    // With a conditions seed, each wave's roll depends only on the seed and the wave number.
+    const rng = this.conditionsSeed === undefined ? this.rng : seededRng((this.conditionsSeed ^ Math.imul(this.wavesStarted + 1, 0x9e3779b1)) >>> 0);
+    this.locked = rollLocks(rng, this.level.lockFraction ?? LOCKDOWN.fraction);
     const choices = BATTLEFIELD_IDS.filter((id) => id !== this.battlefield?.id);
     // Clamped so a random source that can return exactly 1 still picks a valid battlefield.
-    this.battlefield = BATTLEFIELDS[choices[Math.min(choices.length - 1, Math.floor(this.rng() * choices.length))]];
+    this.battlefield = BATTLEFIELDS[choices[Math.min(choices.length - 1, Math.floor(rng() * choices.length))]];
   }
 
   private addText(x: number, y: number, text: string, color: string): void {

@@ -13,6 +13,8 @@ export const HARBOR_GRID: LevelDef = {
   path: [[-1, 1], [17, 1], [17, 4], [2, 4], [2, 7], [17, 7], [17, 10], [3, 10]],
   startGold: 160,
   lives: 20,
+  /** All enemy HP on this map (see LevelDef.hpScale), tuned with the balance bot under 70% lockdown. */
+  hpScale: 0.9, // second map: still easy
   waves: [
     // 1. basics
     {
@@ -184,7 +186,7 @@ export const HARBOR_GRID: LevelDef = {
         { enemy: 'brute', count: 8, interval: 1.8, delay: 4, hpMult: 2.8 },
         { enemy: 'wyvern', count: 6, interval: 2, delay: 8, hpMult: 2.8 },
         { enemy: 'drone', count: 20, interval: 0.4, delay: 10, hpMult: 2.8 },
-        { enemy: 'brute', count: 3, interval: 3, delay: 16, hpMult: 5.5, element: 'fire' },
+        { enemy: 'bulwark', count: 1, interval: 1, delay: 16, hpMult: 4.8 },
       ],
       bonus: 0, rewardMult: 0.45,
     },

@@ -4,7 +4,7 @@ This file gives Claude Code the context it needs to work on this project. It sta
 
 ## Project Overview
 
-**Name:** Tower Defense (working title, TBD)
+**Name:** Neon Wardens (towers and heroes guarding the data core)
 **Platform:** Web browser (desktop first; mobile/touch later, TBD)
 **Purpose:** A tower defense game where every tower is built from two choices:
 
@@ -110,12 +110,12 @@ Rule of thumb for balance: **the more a weapon can target, the less damage it do
 |---|---|---|---|---|---|---|
 | Cannon | single | 21 | 0.8 | 2.8 | 50 | Ground only |
 | Flak | single | 5 | 2.0 | 3.2 | 45 | Air only, +50% vs air |
-| Multi-Shot | multi | 3.1 | 0.85 | 2.4 | 70 | One shot at each of up to 3 different targets |
-| Mortar | splash | 16 | 0.45 | 3.4 | 70 | Shell lands where the target will be; hits all ground in 1.1 tiles. Leads at most 2.0 tiles/s, so Runners (2.6) dodge |
-| Chain | chain | 12.5 | 0.6 | 2.4 | 75 | Instant; jumps to 3 more within 1.6 tiles, −30% per jump |
-| Sniper | single | 34 | 0.3 | 6.0 | 100 | Defaults to Strongest priority |
+| Multi-Shot | multi | 4 | 0.85 | 2.4 | 65 | One shot at each of up to 3 different targets |
+| Mortar | splash | 14 | 0.45 | 3.4 | 75 | Shell lands where the target will be; hits all ground in 1.1 tiles. Leads at most 2.0 tiles/s, so Runners (2.6) dodge |
+| Chain | chain | 12.5 | 0.6 | 2.4 | 85 | Instant; jumps to 3 more within 1.6 tiles, −40% per jump |
+| Sniper | single | 40 | 0.35 | 6.0 | 95 | Defaults to Strongest priority |
 
-Damage numbers are before the element multiplier. **Tower balance (measured):** across all maps, damage actually landed per gold spent is now Cannon 31, Mortar 30, Chain 35, Multi-Shot 39, Flak 44, Sniper 45 (it was 19–63 before rebalancing; the three that can hit flyers stay a bit higher because flyers are common). With the same weapons, every element lands 30.5–31.7 damage per gold (burn and poison included). Air bonus and chain falloff scale `base` before `computeDamage`; the formula itself is unchanged.
+Damage numbers are before the element multiplier. **Tower balance (measured, 2026-10-08):** a fixed benchmark (600 gold of one weapon, placed by coverage on Neon District, averaged over all five elements, 150s against a steady stream of 5× HP enemies; burn and poison included) gives damage landed per gold, ground / air: Cannon 50 / –, Mortar 61 / –, Flak – / 47, Chain 32 / 32, Multi-Shot 28 / 27, Sniper 23 / 25. Rule: specialists (one target type) lead; weapons that hit both trail. Before this pass Chain was 40 / 38.5 (almost as good as Flak against air while also hitting ground, and spreading burn/poison to 4 enemies), Mortar 70, Multi-Shot 21, Sniper 16; the changes were Chain falloff 30% → 40% and cost 75 → 85, Mortar 16 → 14 dmg and 70 → 75 gold, Multi-Shot 3.1 → 4 dmg and 70 → 65 gold, Sniper 34 → 40 dmg, 0.3 → 0.35/s, 100 → 95 gold. Damage per gold measured on whole maps by the bot is less fair (early towers get the best spots for every wave), so use the benchmark for weapon tuning. Wood is the strongest element on Multi-Shot (poison stacks on 3 targets: ~40 vs ~24). Air bonus and chain falloff scale `base` before `computeDamage`; the formula itself is unchanged.
 
 ## Tower = Element × Weapon
 
@@ -144,13 +144,13 @@ Any element can go on any weapon type, which gives 5 × 5 combinations (5 × 6 w
 
 ### Lockdown (built)
 
-Each wave, about **30%** of the 30 element × weapon combos are randomly locked ("encrypted") and can't be built. A new lockdown is rolled when the level starts and after every wave, so the player sees it while building for the next wave.
+Each wave, **70%** of the 30 element × weapon combos (21) are randomly locked (except on Neon District, the first map, which has no lockdown so new players can learn every tower) ("encrypted") and can't be built or upgraded, leaving 9 open. A new lockdown is rolled when the level starts and after every wave, so the player sees it while building for the next wave.
 
-- Towers already built keep working and can still be upgraded, even if their combo is locked.
-- Every weapon keeps at least 2 open elements and every element at least 3 open weapons, so no role (e.g. anti-air) is ever fully locked. With 30% that means 9 locks.
+- Towers already built keep working (and can be sold) when their combo is locked, but **can't be upgraded that wave** (`Game.upgrade` refuses; the info panel shows "🔒 Upgrade encrypted this wave" and the map shows a small 🔒 on the tower). A later lockdown that frees the combo allows upgrades again.
+- Every weapon keeps at least 1 open element and every element at least 1 open weapon, so no role (e.g. anti-air) is ever fully locked. The roll reserves those minimums first, then opens the rest at random, so it always locks exactly its share (the old greedy roll could fall short at high fractions).
 - Numbers live in `LOCKDOWN` (`src/data/towers.ts`). A level can override the share with `lockFraction` (0 turns lockdown off). Rolling is in `src/systems/lockdown.ts` and uses the game's seeded RNG.
-- UI: a magenta notice under BUILD ("9 of 30 towers encrypted"), a pink badge on each element button with how many of its towers are locked, locked cards greyed and crossed out with 🔒 in place of the price. Locked cards can't be picked (click or hotkey), the placement preview turns red, and hovering one shows its details in the info panel with an "Encrypted this wave" note. If a new lockdown locks the tower being placed, the build tool is cleared.
-- Effect on balance: the bot just swaps to another element for the same weapon, so it does about as well with lockdown as without (8 towers: 11–15 lives left vs 10–12). Lockdown adds variety rather than difficulty for now.
+- UI: a magenta notice under BUILD ("9 of 30 towers available, 21 encrypted"), a green badge on each element button with how many of its towers are **available** this wave (hover: "2 of 6 towers available this wave"), locked cards greyed and crossed out with 🔒 in place of the price. Locked cards can't be picked (click or hotkey), the placement preview turns red, and hovering one shows its details in the info panel with an "Encrypted this wave" note. If a new lockdown locks the tower being placed, the build tool is cleared.
+- Effect on balance: the bot just swaps to another element for the same weapon, so a player who fills the map does as well at 70% as at 30% (better, even: the forced mixing sets off more combos). Players with few towers feel it most, because only ~30% of their towers can upgrade on a given wave. Map difficulty was retuned for 70% with `hpScale` (see Maps).
 
 ### Upgrades (built)
 
@@ -178,7 +178,7 @@ Each wave, about **30%** of the 30 element × weapon combos are randomly locked 
 | Swarm | Ground | Many tiny units. Splash, Chain, and Multi-Shot counter it |
 | Drone (was Bat) | Air | Ignores the path and flies straight at the base. Needs Anti-Air |
 | Wyvern | Air | Armored flyer |
-| Boss | Ground or Air | Appears at the end of a level; may resist one element (not built yet) |
+| Boss | Ground or Air | One in each map's final wave, with HP phases (see Bosses) |
 
 **Built:** Grunt, Runner, Brute, Swarm, Drone, Wyvern (numbers in `src/data/enemies.ts`). Air units fly a straight line from the path's start to the base (a level can override it with `airPath`); the map shows it as a faint dotted line. Air units are drawn above everything with a shadow (Drones have spinning rotors, Wyverns beating wings).
 
@@ -201,6 +201,7 @@ Seven maps, played in order from a **map select** screen; beating a map unlocks 
 | 7 | Core Nexus | 35 | enters top right, loops round to a core in the middle; **40 obstacle tiles on a longer road (fewest free pads); has a hero** | Burrower, Warden | 160 / 20 |
 
 - Maps 2–4 were generated from a wave list (themes per wave, e.g. "field hospital", "ghost town", "carrier fleet") with an HP multiplier of growth^(wave−1): Harbor ×1.055, Canyon ×1.062, Spire ×1.049, Zero Point ×1.09 per wave (Zero Point's finale groups are ×0.9 so the hero map doesn't end on a wall), Blackout Sector ×1.077 and Core Nexus ×1.079 (raised from ×1.064/×1.068 when they got heroes; finales ×0.62; Titans II extra HP ×2 on Blackout and ×1.5 on Core Nexus instead of ×3; Core Nexus's carrier armada at 0.8× HP so one wave doesn't decide the map). Maps 6–7 also add 3.5% more enemies per wave and mix in Jammers and Mirrors (about every fifth wave and in the finale). The output is plain data; edit it directly. Kill gold drops in long maps (×0.6 after wave 8, ×0.45 after 15, ×0.35 after 25, ×0.3 after 32); the last wave pays no bonus.
+- **`hpScale`** (on `LevelDef`, applied to every spawn in `buildSpawnQueue`) tunes a whole map in one number. Current values (set for 70% lockdown and the 2026-10-08 tower and hero pass): Neon District **0.5** with **no lockdown** (`lockFraction: 0`) and Harbor Grid **0.9** (the first maps are deliberately easy: on Neon a bot capped at 16 towers wins with 18–20 lives and 12 towers reach wave 25 of 30, while ground-only and 3-tower builds still lose; on Harbor 12 towers win), Chrome Canyon 1.2, Orbital Spire 1.4, Zero Point 1.15, Blackout Sector 1.1, Core Nexus 0.88 (it lost 1–3 of 15 hero games at 1.0).
 - The spawn portal is drawn on whichever map edge the road enters from.
 
 ### Obstacles (built)
@@ -228,9 +229,24 @@ Defined as `ability` on `EnemyDef` (`src/data/enemies.ts`); rules in `Game.updat
 
 Released enemies (Shards, launched Drones) join at the end of the tick, so the hit that killed the parent can't also hit them. They keep the parent's HP multiplier and reward scaling.
 
+## Bosses (built)
+
+Every map's final wave has exactly one boss, in place of the old "titan" group (a test enforces one boss per map, in its last wave). Bosses are enemies with `phases` (`BossPhase` in `src/data/enemies.ts`): each phase starts once, the first time HP falls to its threshold (several can start after one big hit), and runs a list of actions (`BossAction`: summon, shield, enrage, shift, cleanse). Rules in `Game.updateBoss`. Wave groups set each boss's HP multiplier and element per map; escorts it summons share its HP multiplier. The map's `hpScale` applies on top of the multipliers in the table below, and the boss balance numbers further down were measured before `hpScale` and the 70% lockdown.
+
+| Boss | Maps | Base | Phases |
+|---|---|---|---|
+| Siege Colossus | Neon District (×17.5, Fire), Zero Point (×20, Metal) | ground, 1000 HP, armor 8, speed 0.5, 10 lives | 66%: 2 Brutes + 6 Grunts. 33% Overdrive: cleanses effects (armor break stays), ×1.6 speed |
+| Bulwark | Harbor Grid (×4.8) | ground, Water, 700 HP, armor 4, starts with a 50% shield, 8 lives | 60% Shield Wall: new 40% shield + 3 Shielders. 25% Last Stand: 30% shield, ×1.4 speed |
+| Chimera | Chrome Canyon (×9), Blackout Sector (×18) | ground, Fire, 900 HP, armor 3, 8 lives | 75 / 50 / 25% Mutation: element moves one step around the cycle and 2 Splitters drop; at 50% also cleanses, at 25% ×1.3 speed |
+| Sky Leviathan | Orbital Spire (×7, Fire), Core Nexus (×8) | air, Water, 1000 HP, armor 5, speed 0.42, launches a Drone every 7s, 8 lives | 66% Deflector: 25% shield. 33% Launch Bay: 4 Drones + 1 Wyvern, ×1.15 speed |
+
+- **Look:** bosses are drawn 10% larger than their radius with a turning ring of rune arcs (faster once enraged), a glowing core in their current element, and their own hull (Colossus octagon with shoulder cannons, Bulwark rounded block with a front plate, Chimera pentagon with rippling spines, Leviathan long hull with swept wings).
+- **UI:** a boss HP bar at the top of the map (name, phase, %, white marks at each phase threshold, blue shield strip), a "⚠ BOSS: …" banner when it arrives, the phase name ("OVERDRIVE", "MUTATION: METAL") with a pulse and screen shake at each phase, a BOSS tag in the wave preview and map roster, and two sounds (`boss` alarm horn on arrival, `boss-phase` rumble).
+- **Balance** (bot with the mixed plan, 3 seeds per map and per hero): every game still wins. Ground bosses die 41–79% of the way along the road (mostly 55–75%) against a full, upgraded map, so a real player with fewer towers feels them. Air bosses are deadlier because the flight line is short: the Leviathan reaches 85–100% and costs 0–15 lives on Spire and Core Nexus. Its first version (spawn every 4s, 10 lives, 8 escort flyers, ×1.3 speed) lost 2 of 15 Core Nexus games, mostly from the Drones it launched.
+
 ## Heroes (built: Zero Point, Blackout Sector, Core Nexus)
 
-A map with `heroStart` gets a hero, chosen on a **hero select** screen before the map starts (last pick saved in localStorage, key `td-hero`; Restart keeps the same hero). Data in `src/data/hero.ts` (`HEROES`, `HERO_LEVELS`), entity in `src/entities/Hero.ts`, rules in `Game` (`moveHero`, `castHero`, `updateHero`, `updateSummons`, `updateZones`, `heroXp`).
+A map with `heroStart` gets a hero (rule: every map from Zero Point on has one, enforced by a test in `tests/maps.test.ts`; give any new later map a `heroStart`), chosen on a **hero select** screen before the map starts (last pick saved in localStorage, key `td-hero`; Restart keeps the same hero). Data in `src/data/hero.ts` (`HEROES`, `HERO_LEVELS`), entity in `src/entities/Hero.ts`, rules in `Game` (`moveHero`, `castHero`, `updateHero`, `updateSummons`, `updateZones`, `heroXp`).
 
 **Shared rules:**
 - **No health, no mana.** Heroes can't be hurt; abilities only cost a cooldown.
@@ -240,26 +256,40 @@ A map with `heroStart` gets a hero, chosen on a **hero select** screen before th
 - **Elements:** each hero has one element (`element` on `HeroDef`): Vex 💧 Water, Brick 🪨 Earth, Leila ⚙️ Metal, Arjun 🔥 Fire, Echo 🌳 Wood. Every bit of hero damage (attacks, abilities, zone damage over time, Echo's drones) uses the same weakness cycle as towers (+50% against the element it overcomes, −25% against the one that overcomes it) and the battlefield ±5% (`Game.heroElementMult`), with WEAK!/RESIST popups. Heroes apply no element status effects and set off no combos. The element shows in the hero profile (hero select and info panel), next to the call sign on the hero bar, and in a Matchups block in the hero info panel.
 - **Mirrors** are immune to everything heroes do (attacks, abilities, drones). **Jammers** near the hero stop its cooldowns (effect countdowns keep running).
 
-**The five heroes:**
+**The first roster (always available):**
 
 | Hero | Who | Element · role / attack | Z (Lv 1) | X (Lv 3) | C (Lv 5) | V (Lv 8) |
 |---|---|---|---|---|---|---|
 | **Vex Adeyemi** (yellow) | she/her · Human · Lagos, Nigeria · drone engineer | 💧 Water · Tactician · 10 dmg laser, range 2.6 | Pulse Blast: 70 dmg area | EMP: stun 1.5s + strip shields around her | Cryo Field: 6s zone, −50% speed | Orbital Strike: 450 dmg anywhere after 1s |
-| **Mateo "Brick" Ruiz** (orange) | he/him · Cyborg · Mexico City, Mexico · ex-demolition worker | 🪨 Earth · Melee · 11 dmg punches (0.85/s) that cleave 30% onto enemies within 0.6 tiles of the target, range 1.1 | Ground Slam: 30 dmg + 0.8s stun around him (11s) | Rocket Leap: jump up to 5 tiles, 55 dmg on landing | Overdrive: 6s of 1.6× attack speed, 1.25× damage | Seismic Quake: 150 dmg, 2.5s stun, shields stripped in 3.5 tiles |
-| **Leila Haddad** (pink) | she/her · Human (ocular implant) · Beirut, Lebanon · marksman | ⚙️ Metal · Ranged · 19 dmg, range 4.5, 60% pierce, 20% crit | Piercing Round: 110 dmg to everything in an 8-tile line | Mark Target: +35% damage taken from everything for 6s | Rapid Fire: 5s of 3× attack speed | Headhunter: 380 dmg to the 6 toughest enemies anywhere |
-| **Arjun Mehta** (violet) | he/him · Hologram (uploaded mind) · Mumbai, India · physics teacher | 🔥 Fire · Mage · 11 dmg bolt that jumps to 2 more (−25% each) | Firewall: 5s zone, 36 dmg/s | Gravity Well: throw enemies 3 tiles back along the road | Chain Storm: 90 dmg lightning through up to 10 enemies, overloads shields | Time Lock: every enemy on the map stunned 3.5s |
+| **Mateo "Brick" Ruiz** (orange) | he/him · Cyborg · Mexico City, Mexico · ex-demolition worker | 🪨 Earth · Melee · 13 dmg punches (0.85/s) that cleave 30% onto enemies within 0.6 tiles of the target, range 1.1 | Ground Slam: 40 dmg + 0.8s stun around him (11s) | Rocket Leap: jump up to 5 tiles, 55 dmg on landing | Overdrive: 6s of 1.6× attack speed, 1.25× damage | Seismic Quake: 150 dmg, 2.5s stun, shields stripped in 3.5 tiles |
+| **Leila Haddad** (pink) | she/her · Human (ocular implant) · Beirut, Lebanon · marksman | ⚙️ Metal · Ranged · 22 dmg (1/s), range 4.5, 60% pierce, 20% crit | Piercing Round: 110 dmg to everything in an 8-tile line (7s) | Mark Target: +35% damage taken from everything for 6s | Rapid Fire: 5s of 3× attack speed | Headhunter: 380 dmg to the 6 toughest enemies anywhere |
+| **Arjun Mehta** (violet) | he/him · Hologram (uploaded mind) · Mumbai, India · physics teacher | 🔥 Fire · Mage · 11 dmg bolt that jumps to 2 more (−25% each) | Firewall: 5s zone, 30 dmg/s | Gravity Well: throw enemies 3 tiles back along the road | Chain Storm: 90 dmg lightning through up to 10 enemies, overloads shields | Time Lock: every enemy on the map stunned 3.5s |
 | **Echo** (green) | they/them · Android · built in Seoul, South Korea · self-taught builder | 🌳 Wood · Summoner · 9 dmg rapid shots (2.2/s) | Deploy Drone: a turret for 12s (17 dmg, 2/s) | Overclock Towers: towers in 3.5 tiles fire 2× as fast for 8s | Nanite Cloud: 6s zone, 25 dmg/s, −4 armor, eats shields | Drone Swarm: 4 heavy drones for 15s (26 dmg each) |
 
-**Effect kinds** (`HeroEffect` in `src/data/hero.ts`): blast, zone, strike, dash, buff, pierce, mark, execute, knockback, chain, freeze-all, summon, tower-boost. A new hero is mostly data: pick effects and numbers, add four icons to `ABILITY_ICONS` (`src/ui/HeroBar.ts`) and a silhouette to `drawHeroSprite` (`src/render/sprites.ts`).
+**The second roster (unlocked by clearing Core Nexus, `unlockedBy: 'core-nexus'`), each with a passive:** until then their cards on hero select are greyed with "🔒 Clear Core Nexus to unlock" and can't be picked (`isHeroUnlocked` in `src/ui/progress.ts`). Each roster covers all five elements once. The Daily Challenge can hand out any of the ten.
+
+| Hero | Who | Element · role / attack | Passive (always on) | Z (Lv 1) | X (Lv 3) | C (Lv 5) | V (Lv 8) |
+|---|---|---|---|---|---|---|---|
+| **Kaito "Ronin" Sato** (white) | he/him · Human (cybernetic arm) · Osaka, Japan · kendo champion | ⚙️ Metal · Duelist · 13 dmg melee (1.1/s), range 1.2, 50% pierce, 20% crit | **Execution**: his hits finish non-boss enemies at ≤12% HP | Flash Step: blink 4.5 tiles, 70 dmg where he lands | Iaido: 130 dmg in a 5-tile line | Blade Dance: 6s of 2.2× attack speed, 1.2× damage | Thousand Cuts: 240 dmg to the 8 toughest enemies |
+| **Nalani "Tide" Kahale** (blue) | she/her · Human (deep-dive rig) · Honolulu, Hawaiʻi · salvage diver | 💧 Water · Controller · 9 dmg (1.4/s), range 3 | **Undertow**: enemies within 2.5 tiles move 25% slower | Riptide: 6s zone, −45% speed, 14 dmg/s | Rogue Wave: knock enemies 2.5 tiles back, 45 dmg | Pressure Dive: 60 dmg + 1s stun around her | Tsunami: 320 dmg in 3 tiles anywhere after 1.5s |
+| **Inês "Forge" Duarte** (sand) | she/her · Human (exo-frame) · São Paulo, Brazil · street mechanic | 🪨 Earth · Engineer · 10 dmg (1/s), range 2.6 | **Field Engineer**: towers within 3 tiles deal +20% damage | Seismic Charge: 55 dmg + 0.6s stun | Power Surge: towers in 3.5 tiles deal +40% for 8s | Barricade: 7s zone, −60% speed, −3 armor | Core Patch: restore 4 lives (90s) |
+| **Rua Tane** (lime) | he/him · Human (bio-grafts) · Tāmaki Makaurau (Auckland), Aotearoa New Zealand · botanist | 🌳 Wood · Grower · 8 dmg bolt (1.5/s) that jumps to 1 more, range 3 | **Overgrowth**: his hits root and poison like a level-1 Wood tower | Thorn Burst: 50 dmg in 1.4 tiles | Bramble Field: 6s zone, −35% speed, 18 dmg/s | Spore Cloud: +30% damage taken for 6s | Worldroot: 8s zone of 3.2 tiles, −70% speed, 30 dmg/s, −4 armor |
+| **Zeynep "Flare" Demir** (red-orange) | she/her · Human (pyro rig) · Istanbul, Türkiye · bounty hunter | 🔥 Fire · Bounty Hunter · 12 dmg (1.2/s), range 3.2, 15% crit | **Bounty**: kills within 3 tiles pay +30% gold | Napalm: 4s zone, 34 dmg/s | Flashbang: 1.2s stun in 2 tiles | Incendiary Rounds: 6s of 1.5× speed and 1.5× damage | Sunfall: 480 dmg in 2.6 tiles anywhere after 1.2s |
+
+**Passives** (`HeroPassive` on `HeroDef`, rules in `Game`): execute (`heroOnHit`; never bosses; only once the shield is down), slow-aura (`updateHero`, works like standing in a slow zone; not on Mirrors), tower-aura (`towerDamageMult`, used by every tower hit), element-hits (`heroOnHit` calls the shared `applyElementEffect`, so the usual stacking rules apply; still no combos from heroes), bounty (`reward`). Heroes with a ranged passive (Undertow, Field Engineer, Bounty) draw a faint turning dotted ring at its reach; the passive also shows on the hero select card, under the XP bar ("✦ Field Engineer"), and as a block in the hero info panel.
+
+**Second roster balance** (bot, Zero Point / Blackout Sector / Core Nexus, 3 seeds each): all five win 9/9. Average lives: Tide, Forge, Rua, and Flare 20.0 (like Arjun and Echo), Ronin 17.8 (like Vex 18.9 and Leila 18.1; Brick 15.7). Hero kill share: Forge 10% (her value is tower damage), Tide 22%, Rua and Flare 26%, Ronin ~43%. Execution takes the last hit on enemies towers have worn down, so his share stays high even after the toning-down (15 → 13 attack, threshold 15% → 12%, Thousand Cuts 10×260 → 8×240); his results match the others.
+
+**Effect kinds** (`HeroEffect` in `src/data/hero.ts`): blast, zone, strike, dash, buff, pierce, mark, execute, knockback, chain, freeze-all, summon, tower-boost (fire rate and/or damage; `Tower.boostDamage`), repair (restore lives, capped at the map's starting lives). A new hero is mostly data: pick effects and numbers, add four icons to `ABILITY_ICONS` (`src/ui/HeroBar.ts`) and a silhouette to `drawHeroSprite` (`src/render/sprites.ts`).
 
 **UI:**
-- Hero select: one card per hero with an animated portrait, name, role, pronouns, race, origin, bio, attack style, and the four abilities with icons and unlock levels. "Deploy <name>" starts the map.
+- Hero select: one card per hero (ten, second roster locked until Core Nexus is cleared) with an animated portrait, name, role, pronouns, race, origin, bio, attack style, passive (second roster), and the four abilities with icons and unlock levels. "Deploy <name>" starts the map.
 - On the map each hero has its own silhouette in its signature color (Vex a caped arrow, Brick a bulky frame with fists, Leila a slim body with a long rifle, Arjun a flickering hologram with orbiting glyphs, Echo a round android with an antenna), a level badge, an XP ring, and a move marker. Echo's drones show a timer ring; marked enemies get a red reticle; overclocked towers a dashed ring.
 - The **hero bar** under the map uses the hero's color: call sign, level, XP ("174/185 kills nearby"), and four ability buttons with line-art icons that glow in the hero color when ready, cyan while their effect is active ("Active 4.2s" / "Impact 0.6s" with a draining cyan bar), light grey-blue while recharging (thin bar filling up; no dark overlay), dim when locked (🔒 unlock level).
 - Effect countdowns on the map: zones show their seconds and a draining rim; strikes show "IMPACT 0.6"; timed self effects (stun blasts, buffs, Time Lock) draw a draining cyan ring around the hero with "<ability> 1.2s".
 - Selecting the hero shows its profile, attack, and abilities in the info panel.
 
-**Balance:** the bot plays every hero (abilities when they'd hit something; melee heroes chase the lead enemy; knockbacks saved for enemies near the core). Heroes were toned down so towers carry most of the fight and heroes are even with each other. Measured on Zero Point (3 seeds each), share of kills / of all damage: Vex 17% / 13%, Brick 28% / 20%, Leila 25% / 14%, Arjun 23% / 14%, Echo 17% / 9% (Echo's real value is overclocking towers, counted as tower damage). Brick stays a little ahead because chasing the lead enemy gets him last hits. Before this pass Brick was at 60% of kills. These shares were measured before heroes had elements; with elements every hero still wins Zero Point in the test suite, but the shares haven't been re-measured. Every hero has an answer to shields (Vex EMP, Brick Seismic Quake, Leila's marks and burst, Arjun Chain Storm, Echo Nanite Cloud). Zero Point's HP growth was raised to ×1.09 per wave to match weaker heroes: all heroes win on 5 probe seeds, but some games end with 1–3 lives (Vex and Brick find it hardest; Arjun and Echo win cleanly). Blackout Sector (hero starts at tile 9,7, inside the first U) and Core Nexus (12,5, inside the inner loop): every hero wins 6/6 probe seeds, with 2–20 and 3–20 lives left. Brick and Leila have the closest games; Echo never loses a life.
+**Balance:** the bot plays every hero (abilities when they'd hit something; melee heroes chase the lead enemy; knockbacks saved for enemies near the core). Heroes were toned down so towers carry most of the fight and heroes are even with each other. Measured on Zero Point (3 seeds each), share of kills / of all damage: Vex 17% / 13%, Brick 28% / 20%, Leila 25% / 14%, Arjun 23% / 14%, Echo 17% / 9% (Echo's real value is overclocking towers, counted as tower damage). Brick stays a little ahead because chasing the lead enemy gets him last hits. Before this pass Brick was at 60% of kills. These shares were measured before heroes had elements; with elements every hero still wins Zero Point in the test suite, but the shares haven't been re-measured. **Hero pass (2026-10-08, with 70% lockdown):** Arjun won every game at full lives while Leila and Brick lost some on Zero Point and Blackout Sector, so Leila got 19 → 22 attack, 0.9 → 1 shot/s, Piercing Round 8s → 7s; Brick 11 → 13 punches and Ground Slam 30 → 40; Arjun's Firewall 36 → 30 dmg/s. Afterwards every hero wins every probe game on all three hero maps (3–4 seeds each): Zero Point 11–20 lives (Vex and Brick closest), Blackout Sector 14–20 (Leila closest), Core Nexus 5–20 (Brick closest). Hero kill share 20–37% on Zero Point and Blackout, 3–27% on Core Nexus (Echo 2–7% there: Echo's value is overclocking towers). Every hero has an answer to shields (Vex EMP, Brick Seismic Quake, Leila's marks and burst, Arjun Chain Storm, Echo Nanite Cloud). Zero Point's HP growth was raised to ×1.09 per wave to match weaker heroes: all heroes win on 5 probe seeds, but some games end with 1–3 lives (Vex and Brick find it hardest; Arjun and Echo win cleanly). Blackout Sector (hero starts at tile 9,7, inside the first U) and Core Nexus (12,5, inside the inner loop): every hero wins 6/6 probe seeds, with 2–20 and 3–20 lives left. Brick and Leila have the closest games; Echo never loses a life.
 
 ## Tower Mockups
 
@@ -350,10 +380,31 @@ Neon-on-dark cyberpunk. Gameplay, numbers, and tower names are unchanged by the 
 All sound effects are synthesized with the Web Audio API in `src/audio/Sound.ts`: no audio files, no dependency. Cyberpunk synth style.
 
 - **How it's wired:** `Game` queues `GameSound` events (what happened) and the page drains them every frame (`game.drainSounds()`) and plays them; `Game` never touches audio. The queue is capped at 64 so headless runs don't grow it. UI-only sounds (`denied`, `click`) are played by `main.ts`.
-- **Sounds:** a shot per weapon type (cannon thump, flak blip, multi-shot triple tick, mortar launch, chain zap, sniper laser), mortar blast, kill blip, crit sparkle, freeze shimmer, stun thud, leak alarm, build chime, upgrade arpeggio, sell coin, wave-start siren, wave-clear chord, win fanfare, lose descent, countdown ticks in the last 5 seconds (higher on the last), "denied" buzz (locked/unaffordable build, invalid tile, failed upgrade), and a soft click when picking an element or weapon.
+- **Sounds:** a shot per weapon type (cannon thump, flak blip, multi-shot triple tick, mortar launch, chain zap, sniper laser), mortar blast, kill blip, crit sparkle, freeze shimmer, stun thud, leak alarm, build chime, upgrade arpeggio, sell coin, wave-start siren, wave-clear chord, boss alarm horn and phase rumble, win fanfare, lose descent, countdown ticks in the last 5 seconds (higher on the last), "denied" buzz (locked/unaffordable build, invalid tile, failed upgrade), and a soft click when picking an element or weapon.
 - **Keeping it listenable:** each sound has a minimum gap before it can replay (`MIN_GAP`), at most 24 voices play at once, a slight random detune avoids repetition, and a compressor sits on the master bus. Master volume is `MASTER_VOLUME` (0.35).
 - **Browser rules:** the AudioContext is only created on the first click or key press.
 - **Mute:** speaker icon at the right end of the top bar (turns red with an × when muted) or `M`. The choice is saved in localStorage (`td-muted`) when storage is available.
+
+## Save and resume (built)
+
+- A run is saved after every cleared wave, and also when the tab is hidden or closed and when the map menu opens, as long as it's between waves (`Game.snapshot()`: towers with level/spend/priority, gold, lives, hero position/level/kills, stats, the coming wave's battlefield and lockdown). Mid-wave progress isn't saved: a reload restarts the wave in progress from its start.
+- One save per map plus one for the daily, in localStorage (`td-saves`, `src/ui/saves.ts`). `Game.restore()` rebuilds the run; the countdown waits for Ready. Saves have a version (`SNAPSHOT_VERSION`); old ones are dropped when the shape changes.
+- Map cards with a save show **Continue · wave N/M**, **New run** (asks first), and lives left. Clicking the card continues. Winning, losing, Reboot, ↻ restart, or a new run clears the save.
+
+## Daily Challenge (built)
+
+- One challenge per UTC day (`src/game/daily.ts`): the date seeds the map, the hero (on hero maps; no hero select), and every wave's battlefield and lockdown (`GameOptions.conditionsSeed`: each wave's roll depends only on the seed and wave number, so everyone gets the same conditions however their fights go). Combat randomness (crits, stuns) stays random.
+- Score = 100 per wave held + 50 per life left + 1000 for a win (`dailyScore`). The best today is kept in localStorage (`td-daily`).
+- UI: a magenta Daily Challenge card at the top of map select (date, map, hero, best today, Play daily / Continue / New attempt). Any map can be the daily, locked or not, and a daily win doesn't unlock campaign maps. The top bar reads "Daily 2026-10-08 · <map>". The end screen shows the score and best, and **Copy result** puts a short text (date, map, hero, result, score, link) on the clipboard to share.
+
+## Languages (built)
+
+English, Español, 中文 (Simplified Chinese), and Tiếng Việt, picked from a dropdown in the top bar (left of the mute button). The choice is saved in localStorage (`td-lang`); with nothing saved, the browser's language is used if we have it. Switching relabels everything live, mid-run included.
+
+- **How it works** (`src/i18n/`): the English text is the key. Wrap every player-facing string in `t('English text', { n })` with `{placeholders}` for numbers and names (`tr` in the renderer, where `t` is a local); data strings (tower, enemy, hero, map, combo names and descriptions) are wrapped where they're shown (`t(def.name)`). Each language is a dictionary `es.ts` / `zh.ts` / `vi.ts` from English to the translation; a missing key falls back to English. Static text in `index.html` uses `data-i18n` / `data-i18n-title` / `data-i18n-aria`; the help footer is built in `main.ts`.
+- **Adding text:** use `t()` with a plain string literal (both sides of a ternary are fine; template literals are not keys), then add the English → translation line to all three dictionaries. `tests/i18n.test.ts` collects every key (all `t()`/`tr()` calls in src, every name/description in the data, the index.html attributes; see `tests/i18nKeys.ts`) and fails on missing keys, mismatched placeholders, or stale keys. About 460 strings today.
+- **Fonts:** Orbitron and Share Tech Mono have no Vietnamese tone marks or Chinese characters, so for `vi` and `zh` the CSS font variables (`:root:lang(...)`) and the canvas fonts (`canvasFont` in `src/render/theme.ts`) switch to system fonts.
+- Hero names and call signs, the game title, and key names ([M], Space shown as is in English/Chinese) stay as they are. Translations were written by Claude and haven't been checked by native speakers yet.
 
 ## Game Modes & Progression (TBD)
 
@@ -367,7 +418,7 @@ All sound effects are synthesized with the Web Audio API in `src/audio/Sound.ts`
 - **Rendering:** plain **HTML5 Canvas**, no game engine. Towers and enemies are vector shapes drawn in code (`src/render/sprites.ts`).
 - **Tests:** **Vitest**.
 - **Data-driven balance:** all towers, elements, weapon types, enemies, and waves live in `src/data/`, not in game logic, so tuning numbers never needs a code change.
-- **Save data:** `localStorage` (progress, high scores, settings). No backend for v1. (Not used yet.)
+- **Save data:** `localStorage`, no backend: map progress (`td-progress`), saved runs (`td-saves`), daily best (`td-daily`), last hero (`td-hero`), mute (`td-muted`).
 - **Hosting:** any static host (GitHub Pages, Netlify, Vercel). `.github/workflows/deploy.yml` builds and publishes `dist/` to GitHub Pages on every push to `main` (Pages source must be set to "GitHub Actions" in the repo settings).
 - **Runtime dependencies:** none. Dev dependencies: `typescript`, `vite`, `vitest`.
 
@@ -390,9 +441,10 @@ index.html          - page shell: canvas, sidebar HUD, game-over overlay
   /data/maps        - one file per map (road, obstacles, gold, lives, waves)
   /systems          - damage formula, path, targeting, combat (applyHit), seeded RNG
   /entities         - Tower, Enemy, Projectile, Hero
-  /game/Game.ts     - all game state and rules for one level; no DOM, runs headless in tests
+  /game/Game.ts     - all game state and rules for one level (plus snapshot/restore); no DOM, runs headless in tests
+  /game/daily.ts    - Daily Challenge (date → map, hero, seed) and its score
   /render           - Renderer (canvas, background cache, effects), sprites (tower art), theme (canvas palette)
-  /ui               - Hud (top bar, build menu, overlays), InfoPanel (tower/hero details), HeroBar, HeroSelect, MapMenu (map select), progress (unlocks)
+  /ui               - Hud (top bar, build menu, overlays), InfoPanel (tower/hero details), HeroBar, HeroSelect, MapMenu (map select, daily card), progress (unlocks), saves (saved runs, daily best)
   /audio            - synthesized sound effects
 /tests              - damage, path, targeting, game rules, and a headless balance simulation
 ```
@@ -415,16 +467,16 @@ Game logic works in **tile units** (tile (c, r) has its center at (c + 0.5, r + 
 - Balance check: every enemy type must be killable by at least one cheap tower combination.
 - `tests/game.test.ts` has a headless balance sim. A bot buys towers in a fixed plan order, each on the tile that covers the most of the routes it can hit; if a planned combo is locked it takes the same weapon in the first open element. With `upgrades` on, once it reaches its tower cap it spends leftover gold upgrading its lowest-level towers. It always upgrades instead of building once no free tile covers at least ~4 tiles of route (`MIN_USEFUL_COVERAGE`), like a player whose map is full. Unit tests use the level with lockdown off so they can build any combo. Checks: a mixed plan wins Neon District on 10 seeds with lockdown on; ground-only (Cannon + Mortar) loses; 3 towers lose. Re-run after changing any number in `src/data/`.
 - Balance checks also require every single-element build (the same weapon plan, all on one element) to win. The mixed plan now uses a different element per job (Earth Cannon, Water Multi-Shot, Fire Mortar, Metal Flak, Metal Cannon, Wood Chain, Water Flak, Metal Sniper).
-- Balance checks: Neon District: the mixed plan wins on 10 seeds with lockdown on; a mixed 16-tower build that upgrades gets past wave 15; every single-element build survives through wave 8; ground-only loses; 3 towers lose. Maps 2–4: the mixed plan wins on 3 seeds each. Simulations are deterministic per seed.
-- Current tuning (lives left out of 20, everything on): the mixed plan spending all gold (builds most of the map, then upgrades) wins all 30 waves on 10/10 seeds with 8–18 lives. Waves 29 (titans II) and 30 (grand finale) are the hardest: with 20% more HP on waves 26–30 the same bot loses 2 of 10. Capped builds that upgrade fall in the late game (16 towers around waves 19–23). Waves 1–15 are unchanged from the 15-wave tuning.
+- Balance checks: Neon District (no lockdown): the mixed plan wins on 10 seeds; a mixed 16-tower build that upgrades wins (easy first map, no lockdown); a mixed 16-tower build that upgrades gets past wave 15; every single-element build survives through wave 8; ground-only loses; 3 towers lose. Maps 2–4: the mixed plan wins on 3 seeds each. Simulations are deterministic per seed.
+- Tuning as of 2026-10-08 (70% lockdown, hpScale per map): the full-map bot wins every probe game on every map, mostly with 15–20 lives on maps 1–4 (Chrome Canyon 8–20, Spire 19–25); hero maps are listed under Heroes. The numbers below are from the earlier 30% tuning, before hpScale.
+- Earlier tuning (lives left out of 20, everything on): the mixed plan spending all gold (builds most of the map, then upgrades) wins all 30 waves on 10/10 seeds with 8–18 lives. Waves 29 (titans II) and 30 (grand finale) are the hardest: with 20% more HP on waves 26–30 the same bot loses 2 of 10. Capped builds that upgrade fall in the late game (16 towers around waves 19–23). Waves 1–15 are unchanged from the 15-wave tuning.
 - Other maps (mixed plan spending all gold, 10 seeds): Harbor Grid wins 10/10 with 7–20 of 20 lives; Chrome Canyon 10/10 with 7–13 of 20; Orbital Spire 10/10 with 2–24 of 25. Spire's finale is very sensitive to its growth: ×1.052 leaves 3–7 lives, ×1.056 loses. Blackout Sector and Core Nexus are hero maps now (numbers under Heroes). On Core Nexus the bot has every possible tower at max level by about wave 28 (38 towers) and can't spend its gold, so the obstacles are what limit it. Growth is a cliff there: ×1.08 loses 9 of 30 hero games, ×1.079 none.
 
 ## Open Questions (edit me)
 
-- What's the game's name?
 - Mobile/touch support in v1?
 
-## Current State (as of 2026-10-07)
+## Current State (as of 2026-10-08)
 
 The first playable is built and verified in a browser. Summary of what exists:
 
@@ -432,7 +484,7 @@ The first playable is built and verified in a browser. Summary of what exists:
 - Seven maps (see Maps), each 20×12 tiles with its own road shape, wave count, and new enemy types. Map select with unlock progression.
 - Start: 150 gold, 20 lives.
 - Six enemies: Grunt, Runner, Brute, Swarm (ground) and Drone, Wyvern (air). See Enemies.
-- Lockdown: each wave ~30% of tower combos are locked at random (see Lockdown).
+- Lockdown: each wave 70% of tower combos are locked at random, for building and upgrading (see Lockdown).
 - Battlefield: each wave is on a random battlefield that boosts one element +5% and weakens another −5% (see Battlefields). Enemies have elements (see Element interactions).
 - 30 towers: any of the 6 weapons with any of the 5 elements, each with its own name (e.g. Inferno Mortar, Frost Flak, Thornweb, Quake Cannon, Railgun; full list in `src/data/towers.ts`). See Elements and Weapon Types.
 - 30 waves, each with its own twist: 1 basics, 2 runners, 3 swarms, 4 first drones, 5 brutes, 6 fast mix, 7 wyverns, 8 everything at once, 9 air raid, 10 armored column, 11 swarm storm, 12 elemental mix (grunts of all five elements), 13 sky fortress, 14 juggernauts, 15 onslaught, 16 night shift, 17 iron curtain, 18 hive, 19 storm front, 20 titans (a few enormous brutes and wyverns), 21 blitz, 22 elemental chaos (every type in an unusual element), 23 air supremacy, 24 siege, 25 last stand, 26 overclock (fast enemies in four elements), 27 fortress (24 brutes, 10 wyverns), 28 swarm singularity (150 swarm units in all five elements), 29 titans II, 30 grand finale (the whole army). Waves 16–25 have many more enemies, so their HP multipliers restart lower (about ×3) and climb ~10% per wave (titans up to ×7). Waves 26–30 are bigger still, so their HP multipliers restart at about ×3.8 and keep climbing ~10% per wave (titans up to ×13). Waves 9+ use group element overrides so no single tower element covers them. Clearing a wave gives bonus gold. Kill gold is halved in waves 9–15, ×0.4 in 16–25, and ×0.35 in 26–30 (`rewardMult` on `WaveDef`) so gold doesn't snowball.
@@ -441,10 +493,10 @@ The first playable is built and verified in a browser. Summary of what exists:
 
 **Controls**
 - Pick an element with the 5 buttons above the cards (or `Q` `W` `E` `R` `T` = Fire, Water, Wood, Earth, Metal), then a weapon card (or `1`–`6`), then an empty pad. The cards redraw in the chosen element's colors and names, and the effect is described under the picker. Default element: Fire. Shift-click keeps building. Right-click or `Esc` cancels.
-- **Tower info panel** (right of the sidebar): shows the hovered weapon card, else the card picked for building, else the tower selected on the map. It shows name, element and weapon, cost or level/spent, level pips, stats (damage, damage/s, fire rate, range, targets, attack details, crit/pierce, effect power), the element's role and effect with numbers at that level, and the weapon's strength and weakness. For a placed tower, each stat also shows its next-level value (green), plus Upgrade (`U`), Target priority, and Sell (`S`) buttons. If you can't afford a card it says how much gold is missing.
+- **Tower info panel** (right of the sidebar): shows the hovered weapon card, else the card picked for building, else the tower selected on the map. It shows name, element and weapon, cost or level/spent, level pips, stats (damage, damage/s, fire rate, range, targets, attack details, crit/pierce, effect power), the element's role and effect with numbers at that level, and the weapon's strength and weakness. For a placed tower, each stat also shows its next-level value (green). Upgrade (`U`), Target priority, and Sell (`S`) sit in a highlighted box right under the tower's name, so they're visible without scrolling; when an upgrade (or a card) is unaffordable the box says how much gold is missing, and for locked combos it shows the encrypted note.
 - **Heroes (Zero Point, Blackout Sector, Core Nexus):** pick one of five on the hero select screen; right-click to move; `Z` `X` `C` `V` abilities (aimed ones then need a click); `H` selects the hero. See Heroes.
 - **End screen stats:** after a map (win or loss), a breakdown of kills (towers / hero / burn & poison, with %), damage landed by weapon, and combos set off. Stats live in `Game.stats` and count only damage that actually landed (no overkill).
-- **Map select** opens on load and from the **Maps** button in the top bar. Locked maps say which map unlocks them. Cards show a road preview, wave count, description, and the enemy roster with NEW tags.
+- **Map select** opens on load and from the **Maps** button in the top bar. The Daily Challenge card sits on top. Locked maps say which map unlocks them. Cards show a road preview, wave count, description, the enemy roster with NEW and BOSS tags, and Play, or Continue / New run when a run is saved.
 - **Restart** (↻ in the top bar) replays the current map from wave 1; it asks for confirmation if a wave has been started. The end screen has **Next map** (after a win), **Reboot** (replay), and **Maps**.
 - `Space` (or a Ready button) starts the next wave, `P` pauses, `M` mutes, and the sidebar has 1×/2×/3× speed. Between waves a 30s countdown starts the next wave by itself (see Get-ready countdown).
 
@@ -459,9 +511,9 @@ The first playable is built and verified in a browser. Summary of what exists:
 - Targeting filters by ground/air. `Enemy.speed` already includes slows and stops, so the Mortar leads chilled enemies correctly.
 - The game runs at a fixed 60 Hz step, so game speed doesn't change outcomes. Randomness is injectable for deterministic tests.
 
-**Tests** (151, all passing; ~47s, mostly full-map balance sims): element combos (each of the five, Steam splash, Wildfire spread), stats without overkill, heroes (five complete profiles, one element each with weakness-cycle damage, chosen hero on the map, walking speed, attacks skip Mirrors, melee cleave, magic chain, leveling and unlocks, Jammer pausing cooldowns, each hero's signature abilities), every hero map won with every hero (Zero Point 2 seeds, Blackout Sector and Core Nexus 1), Zero Point unlocked, new abilities (shield absorbs and blocks effects, medic heals in range, splitter releases shards, ghost hidden/revealed and splash-able, phaser blinks but not while stunned, carrier launches drones, disruptor knocks towers offline and waits for one in reach, prism cycles elements, burrower immune and untargetable while under and can't dig while stunned, warden armor aura), obstacles (block building; in bounds and off the road on every map), maps (15–40 waves, valid roads, new enemies per map), unlock progress, per-map balance, wave rewardMult, sound events (queued for build/upgrade/sell and a whole wave, countdown ticks, queue cap), get-ready countdown (none before wave 1, 30s after a clear, auto-start at 0, Ready skips it, off with prepTime 0 and after the last wave), enemy elements (defaults, group overrides, weakness ±), battlefields (re-rolled each wave without repeats, ±5% for towers and enemies), lockdown (30% locked, minimums per weapon and element, deterministic per seed, re-rolled after a wave, locked combos can't be built, built towers unaffected), upgrades (cost, stats, max level, refund, stronger effects, slow cap), damage formula, weakness cycle, path math, targeting priorities, multi-target and chain selection, each weapon's behavior, flyers and anti-air, every status effect's stacking/refresh/immunity rules, burn kills paying gold, freeze stopping movement, armor break raising damage, build/sell economy, wave flow, lives/game over, and the headless balance simulation.
+**Tests** (182, all passing; ~140s, of which most is every hero map played with all ten heroes; mostly full-map balance sims): element combos (each of the five, Steam splash, Wildfire spread), stats without overkill, heroes (ten complete profiles, each roster covering all five elements, weakness-cycle damage, second roster locked until Core Nexus, each passive: Execution finishes weakened enemies but not bosses, Undertow slows only nearby enemies, Field Engineer and Power Surge boost tower damage, Core Patch restores lives up to the start, Overgrowth roots and poisons, Bounty pays +30%, chosen hero on the map, walking speed, attacks skip Mirrors, melee cleave, magic chain, leveling and unlocks, Jammer pausing cooldowns, each hero's signature abilities), every hero map won with every hero (Zero Point 2 seeds, Blackout Sector and Core Nexus 1), Zero Point unlocked, new abilities (shield absorbs and blocks effects, medic heals in range, splitter releases shards, ghost hidden/revealed and splash-able, phaser blinks but not while stunned, carrier launches drones, disruptor knocks towers offline and waits for one in reach, prism cycles elements, burrower immune and untargetable while under and can't dig while stunned, warden armor aura), translations (every key present in Spanish, Chinese, and Vietnamese with matching placeholders, no stale keys), bosses (one per map in the final wave, phases start once at their thresholds, several after one big hit, escorts, cleanse keeps armor break, new shields, element shifts, arrival sound), save and resume (nothing to save before wave 1 or mid-wave; towers, gold, lives, conditions, stats, and the hero survive a JSON round trip), Daily Challenge (same per UTC day, different between days, conditions fixed by the seed whatever the combat rng, score), obstacles (block building; in bounds and off the road on every map), every map from Zero Point on has a hero (and none before), maps (15–40 waves, valid roads, new enemies per map), unlock progress, per-map balance, wave rewardMult, sound events (queued for build/upgrade/sell and a whole wave, countdown ticks, queue cap), get-ready countdown (none before wave 1, 30s after a clear, auto-start at 0, Ready skips it, off with prepTime 0 and after the last wave), enemy elements (defaults, group overrides, weakness ±), battlefields (re-rolled each wave without repeats, ±5% for towers and enemies), lockdown (70% locked, exact share at any fraction, minimums per weapon and element, deterministic per seed, re-rolled after a wave, locked combos can't be built, built towers keep firing but can't upgrade while locked), map hpScale, easy first map (16 towers win Neon District; no lockdown there, 70% on every later map), upgrades (cost, stats, max level, refund, stronger effects, slow cap), damage formula, weakness cycle, path math, targeting priorities, multi-target and chain selection, each weapon's behavior, flyers and anti-air, every status effect's stacking/refresh/immunity rules, burn kills paying gold, freeze stopping movement, armor break raising damage, build/sell economy, wave flow, lives/game over, and the headless balance simulation.
 
-**Known gaps:** no endless mode, no music (sound effects only), no level-3 upgrade branches, no Boss, save data is only map progress and the mute setting, no touch input. The folder is a git repository (branch `main`) but has no commits or remote yet.
+**Known gaps:** no endless mode, no music (sound effects only), no level-3 upgrade branches, no touch input, saves only between waves. The folder is a git repository (branch `main`) but has no commits or remote yet.
 
 ## Roadmap
 
@@ -473,7 +525,7 @@ Done:
 - All five elements with the shared status-effect system (Burn, Chill/Freeze, Root/Poison, Stun/Armor Break), 30 buildable towers, element picker, element and status visuals.
 - Cyberpunk reskin: neon city map, robot enemies, neon towers and UI, level renamed Neon District.
 - Tower info panel (right of the sidebar) and 3-level tower upgrades with level-scaled effects and upgrade visuals.
-- Lockdown: ~30% of tower combos randomly locked each wave.
+- Lockdown: ~30% of tower combos randomly locked each wave (raised to 70% later, and locks block upgrades too).
 - Enemy elements (weakness cycle active) and random battlefields each wave (±5%).
 - 30s get-ready countdown between waves with a Ready button.
 - Synthesized sound effects with a mute toggle (icon and `M`).
@@ -482,15 +534,19 @@ Done:
 - 30 waves (waves 26–30 added, kill gold ×0.35 there); balance bot upgrades once its map is full.
 - Map 5 Zero Point (30 waves) with a hero (4 level-unlocked abilities, cooldowns only, levels from nearby kills) and two new enemies (Jammer, Mirror); temporarily unlocked.
 - Five playable heroes with profiles (Vex, Brick, Leila, Arjun, Echo), hero select screen, data-driven ability effects, per-hero art, icons, and colors.
+- Language picker: English, Spanish, Chinese, Vietnamese, with a test that every string is translated.
+- Second hero roster unlocked by clearing Core Nexus, each with a passive: Ronin (Execution), Tide (Undertow), Forge (Field Engineer, Power Surge, Core Patch), Rua (Overgrowth), Flare (Bounty).
 - Hero elements: each hero has one element; hero damage follows the weakness cycle and battlefields like towers.
 - Element combos (Steam, Wildfire, Shatter, Corrosion, Rupture); kill/damage stats with an end-screen breakdown; hero and tower rebalance measured with those stats.
 - Three new maps (Harbor Grid 20 waves, Chrome Canyon 25, Orbital Spire 40) with six new enemy types (Shielder, Medic, Splitter/Shard, Ghost, Phaser, Carrier), map select with unlock progression, Restart button, Next map / Maps on the end screen.
 - Maps 6 Blackout Sector (30 waves) and 7 Core Nexus (35 waves), harder, with obstacles that block building and four new enemies (Disruptor, Prism, Burrower, Warden). Both are hero maps (hero select, Jammers and Mirrors mixed in, retuned).
 
+- Bosses (Siege Colossus, Bulwark, Chimera, Sky Leviathan) with HP phases in every map's final wave; save and resume between waves; Daily Challenge with a shareable score.
+- 70% lockdown that also blocks upgrades, element badges showing available towers, weapon rebalance (Chain/Mortar down, Multi-Shot/Sniper up) from a fixed benchmark, hero pass (Leila and Brick up, Arjun's Firewall down), per-map `hpScale` with easy first two maps.
+
 Not started:
-- Boss enemy.
 - Level-3 upgrade branches.
-- Endless mode; a Boss enemy.
+- Endless mode.
 
 ## Notes for Claude Code
 

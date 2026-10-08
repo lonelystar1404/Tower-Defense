@@ -27,6 +27,8 @@ export class Tower {
   /** Overclocked by a hero (Echo): recharges `boostMult`× as fast while `boostTime` > 0. */
   boostTime = 0;
   boostMult = 1;
+  /** Power Surge (Forge): deals `boostDamage`× damage while `boostTime` > 0. */
+  boostDamage = 1;
   /** Knocked out by a Disruptor: doesn't aim, recharge, or fire while > 0. */
   disabledTime = 0;
 

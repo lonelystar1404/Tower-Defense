@@ -23,6 +23,8 @@ export const BLACKOUT_SECTOR: LevelDef = {
   ],
   startGold: 160,
   lives: 20,
+  /** All enemy HP on this map (see LevelDef.hpScale), tuned with the balance bot under 70% lockdown. */
+  hpScale: 1.1,
   heroStart: [9, 7],
   waves: [
     // 1. basics
@@ -279,7 +281,7 @@ export const BLACKOUT_SECTOR: LevelDef = {
         { enemy: 'wyvern', count: 16, interval: 1.8, delay: 10, hpMult: 5.3 },
         { enemy: 'jammer', count: 12, interval: 1.5, delay: 3, hpMult: 5.3 },
         { enemy: 'mirror', count: 12, interval: 1.5, delay: 7, hpMult: 5.3 },
-        { enemy: 'brute', count: 6, interval: 3, delay: 18, hpMult: 12.8, element: 'fire' },
+        { enemy: 'chimera', count: 1, interval: 1, delay: 18, hpMult: 18 },
       ],
       bonus: 0, rewardMult: 0.35,
     },

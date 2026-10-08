@@ -1,6 +1,6 @@
 import { ELEMENTS, type ElementId } from '../data/elements';
 import { weakenedElement } from '../data/battlefields';
-import { ENEMIES } from '../data/enemies';
+import { ENEMIES, isBoss } from '../data/enemies';
 import { LEVELS } from '../data/levels';
 import { COMBOS } from '../data/combos';
 import { describeEffect } from '../data/status';
@@ -11,6 +11,8 @@ import type { Tower } from '../entities/Tower';
 import type { Game } from '../game/Game';
 import { drawTower } from '../render/sprites';
 import { InfoPanel, type InfoSubject } from './InfoPanel';
+import { DAILY_SCORE, dailyScore, type DailyChallenge } from '../game/daily';
+import { t } from '../i18n';
 
 export interface HudActions {
   upgradeSelected(): void;
@@ -26,6 +28,8 @@ export interface HudActions {
   restartGame(): void;
   openMaps(): void;
   nextMap(): void;
+  /** Copy the Daily Challenge result to share. */
+  share(): void;
 }
 
 export interface HudView {
@@ -69,6 +73,9 @@ export class Hud {
   /** Element the card icons and names were last drawn for. */
   private cardsElement: ElementId | null = null;
   private readonly cache = new Map<HTMLElement, string>();
+  /** The Daily Challenge being played, if any, and the best score recorded today. */
+  private daily: DailyChallenge | null = null;
+  private dailyBestScore = 0;
 
   constructor(actions: HudActions) {
     this.startWave.addEventListener('click', () => actions.startWave());
@@ -81,6 +88,7 @@ export class Hud {
     $('open-maps').addEventListener('click', () => actions.openMaps());
     $('overlay-maps').addEventListener('click', () => actions.openMaps());
     $('next-map').addEventListener('click', () => actions.nextMap());
+    $('share-result').addEventListener('click', () => actions.share());
 
     const picker = $('element-picker');
     BUILD_ELEMENTS.forEach((element, i) => {
@@ -89,8 +97,8 @@ export class Hud {
       el.className = 'element-button';
       el.style.setProperty('--el-color', def.color);
       el.textContent = def.icon;
-      el.title = `${def.name} [${ELEMENT_KEYS[i]}]`;
-      el.setAttribute('aria-label', def.name);
+      el.title = `${t(def.name)} [${ELEMENT_KEYS[i]}]`;
+      el.setAttribute('aria-label', t(def.name));
       el.addEventListener('click', () => actions.chooseElement(element));
       picker.append(el);
       this.elementButtons.push({ element, el });
@@ -101,12 +109,12 @@ export class Hud {
       const w = WEAPONS[weapon];
       const el = document.createElement('button');
       el.className = 'build-card';
-      el.title = `${w.name}: ${w.role} [${i + 1}]`;
+      el.title = `${t(w.name)}: ${t(w.role)} [${i + 1}]`;
       const icon = document.createElement('canvas');
       el.append(icon);
       const text = document.createElement('div');
       text.innerHTML = `<div class="name"></div><div class="meta"></div>`;
-      text.querySelector('.meta')!.textContent = `${w.name} · ${w.role}`;
+      text.querySelector('.meta')!.textContent = `${t(w.name)} · ${t(w.role)}`;
       el.append(text);
       const cost = document.createElement('span');
       cost.className = 'cost';
@@ -120,8 +128,40 @@ export class Hud {
     });
   }
 
+  /** Marks the run as today's Daily Challenge (or a normal map with null). */
+  setDaily(daily: DailyChallenge | null): void {
+    this.daily = daily;
+    this.dailyBestScore = 0;
+    this.cache.delete($('overlay-text'));
+  }
+
+  setDailyBest(best: number): void {
+    this.dailyBestScore = best;
+  }
+
+  /** Brief "Copied!" on the share button. */
+  flashShared(): void {
+    const button = $('share-result');
+    button.textContent = t('Copied!');
+    setTimeout(() => (button.textContent = t('Copy result')), 1500);
+  }
+
+  /** After a language change: redraw everything that's only written once. */
+  relabel(): void {
+    this.cache.clear();
+    this.cardsElement = null;
+    this.info.reset();
+    BUILD_WEAPONS.forEach((weapon, i) => {
+      const w = WEAPONS[weapon];
+      const card = this.buildCards[i];
+      card.el.title = `${t(w.name)}: ${t(w.role)} [${i + 1}]`;
+      card.el.querySelector('.meta')!.textContent = `${t(w.name)} · ${t(w.role)}`;
+    });
+    this.elementButtons.forEach(({ element, el }) => el.setAttribute('aria-label', t(ELEMENTS[element].name)));
+  }
+
   update(game: Game, view: HudView): void {
-    this.setText($('level-name'), game.level.name);
+    this.setText($('level-name'), this.daily ? t('Daily {date} · {map}', { date: this.daily.date, map: t(game.level.name) }) : t(game.level.name));
     this.setText(this.lives, String(game.lives));
     this.setText(this.gold, String(game.gold));
     this.setText(this.wave, `${game.wavesStarted}/${game.totalWaves}`);
@@ -131,10 +171,10 @@ export class Hud {
     this.setText(
       this.startWave,
       game.phase === 'wave'
-        ? `Wave ${game.wavesStarted} in progress…`
+        ? t('Wave {n} in progress…', { n: game.wavesStarted })
         : game.prepRemaining !== null
-          ? `Ready · wave ${nextWave} in 0:${String(Math.ceil(game.prepRemaining)).padStart(2, '0')}`
-          : `Ready · wave ${nextWave}`,
+          ? t('Ready · wave {n} in {time}', { n: nextWave, time: `0:${String(Math.ceil(game.prepRemaining)).padStart(2, '0')}` })
+          : t('Ready · wave {n}', { n: nextWave }),
     );
     this.updatePrepBar(game);
     this.setText(this.pause, view.paused ? '▶' : '⏸');
@@ -142,24 +182,27 @@ export class Hud {
 
     for (const { element, el } of this.elementButtons) {
       el.classList.toggle('active', element === view.element);
-      const n = BUILD_WEAPONS.filter((weapon) => game.isLocked({ weapon, element })).length;
-      el.dataset.locked = String(n);
+      // Badge: how many of this element's towers can be built this wave.
+      const open = BUILD_WEAPONS.filter((weapon) => !game.isLocked({ weapon, element })).length;
+      el.dataset.open = String(open);
+      el.title = `${t(ELEMENTS[element].name)} [${ELEMENT_KEYS[BUILD_ELEMENTS.indexOf(element)]}]: ${t('{open} of {total} towers available this wave', { open, total: BUILD_WEAPONS.length })}`;
     }
+    const total = BUILD_WEAPONS.length * BUILD_ELEMENTS.length;
     this.lockdown.hidden = game.locked.size === 0;
     this.setText(
       this.lockdown,
-      `🔒 Lockdown: ${game.locked.size} of ${BUILD_WEAPONS.length * BUILD_ELEMENTS.length} towers encrypted. New lockdown after each wave.`,
+      '🔒 ' + t('Lockdown: {open} of {total} towers available, {locked} encrypted. New lockdown after each wave.', { open: total - game.locked.size, total, locked: game.locked.size }),
     );
     const el = ELEMENTS[view.element];
-    const combos = combosFor(view.element).map((c) => `${c.name} (+${ELEMENTS[c.elements.find((e) => e !== view.element) ?? c.elements[0]].name})`);
-    this.setText(this.elementInfo, `${el.name}: ${describeEffect(view.element)}${combos.length ? `. Combos: ${combos.join(', ')}` : ''}`);
-    this.elementInfo.title = combosFor(view.element).map((c) => `${c.name}: ${c.description}`).join('\n');
+    const combos = combosFor(view.element).map((c) => `${t(c.name)} (+${t(ELEMENTS[c.elements.find((e) => e !== view.element) ?? c.elements[0]].name)})`);
+    this.setText(this.elementInfo, `${t(el.name)}: ${describeEffect(view.element)}${combos.length ? `. ${t('Combos')}: ${combos.join(', ')}` : ''}`);
+    this.elementInfo.title = combosFor(view.element).map((c) => `${t(c.name)}: ${t(c.description)}`).join('\n');
     if (this.cardsElement !== view.element) {
       this.cardsElement = view.element;
       for (const card of this.buildCards) {
         const option = { weapon: card.weapon, element: view.element };
         drawIcon(card.icon, option);
-        card.name.textContent = towerName(option);
+        card.name.textContent = t(towerName(option));
       }
     }
     for (const { weapon, el, cost } of this.buildCards) {
@@ -197,9 +240,11 @@ export class Hud {
     const fieldColor = ELEMENTS[field.element].color;
     this.setText(
       this.prepTitle,
-      game.wavesStarted === 0 ? 'Get ready' : `Wave ${game.wavesStarted} cleared${game.lastWaveBonus ? ` · +${game.lastWaveBonus} gold` : ''}`,
+      game.wavesStarted === 0
+        ? t('Get ready')
+        : t('Wave {n} cleared', { n: game.wavesStarted }) + (game.lastWaveBonus ? ` · ${t('+{n} gold', { n: game.lastWaveBonus })}` : ''),
     );
-    const sub = `Next: wave ${next} of ${game.totalWaves} on <b style="color:${fieldColor}">${field.name}</b>`;
+    const sub = t('Next: wave {n} of {total} on {field}', { n: next, total: game.totalWaves, field: `<b style="color:${fieldColor}">${t(field.name)}</b>` });
     if (this.cache.get(this.prepSub) !== sub) {
       this.cache.set(this.prepSub, sub);
       this.prepSub.innerHTML = sub;
@@ -217,17 +262,18 @@ export class Hud {
     const down = ELEMENTS[weakenedElement(field)];
     const pct = Math.round(game.battlefieldBonus * 100);
     const html = `
-      <h2>Battlefield</h2>
+      <h2>${t('Battlefield')}</h2>
       <div class="bf-row">
-        <span class="bf-name" style="--el-color:${up.color}">${field.name}</span>
+        <span class="bf-name" style="--el-color:${up.color}">${t(field.name)}</span>
         <span class="bf-mods">
-          <span style="color:${up.color}">${up.icon} ${up.name} +${pct}%</span>
-          <span style="color:${down.color}">${down.icon} ${down.name} −${pct}%</span>
+          <span style="color:${up.color}">${up.icon} ${t(up.name)} +${pct}%</span>
+          <span style="color:${down.color}">${down.icon} ${t(down.name)} −${pct}%</span>
         </span>
       </div>`;
-    this.battlefield.title =
-      `${up.name} towers deal +${pct}% damage and ${up.name} enemies take ${pct}% less. ` +
-      `${down.name} towers deal −${pct}% damage and ${down.name} enemies take ${pct}% more.`;
+    this.battlefield.title = t(
+      '{up} towers deal +{pct}% damage and {up} enemies take {pct}% less. {down} towers deal −{pct}% damage and {down} enemies take {pct}% more.',
+      { up: t(up.name), down: t(down.name), pct },
+    );
     if (this.cache.get(this.battlefield) !== html) {
       this.cache.set(this.battlefield, html);
       this.battlefield.innerHTML = html;
@@ -241,7 +287,7 @@ export class Hud {
     const wave = game.level.waves[index];
     this.setText(
       this.waveListTitle,
-      !wave ? 'All waves cleared' : `${during ? 'Wave' : 'Next wave'} ${index + 1}/${game.totalWaves}`,
+      !wave ? t('All waves cleared') : `${during ? t('Wave') : t('Next wave')} ${index + 1}/${game.totalWaves}`,
     );
     if (!wave) {
       this.nextWaveList.innerHTML = '';
@@ -260,11 +306,11 @@ export class Hud {
     const html = [...counts.values()]
       .map(({ id, element, n }) => {
         const def = ENEMIES[id];
-        const air = def.movement === 'air' ? ' <span class="tag">air</span>' : '';
+        const air = (def.movement === 'air' ? ` <span class="tag">${t('air')}</span>` : '') + (isBoss(def) ? ` <span class="tag boss">${t('boss')}</span>` : '');
         const el = element
-          ? ` <span class="el-tag" style="--el-color:${ELEMENTS[element].color}" title="${ELEMENTS[element].name}">${ELEMENTS[element].icon}<span class="el-name"> ${ELEMENTS[element].name}</span></span>`
+          ? ` <span class="el-tag" style="--el-color:${ELEMENTS[element].color}" title="${t(ELEMENTS[element].name)}">${ELEMENTS[element].icon}<span class="el-name"> ${t(ELEMENTS[element].name)}</span></span>`
           : '';
-        return `<li><span class="dot" style="background:${def.color};color:${def.color}"></span>${n} × ${def.name}${el}${air}</li>`;
+        return `<li title="${t(def.description)}"><span class="dot" style="background:${def.color};color:${def.color}"></span>${n} × ${t(def.name)}${el}${air}</li>`;
       })
       .join('');
     if (this.cache.get(this.nextWaveList) !== html) {
@@ -277,14 +323,26 @@ export class Hud {
     this.overlay.hidden = !game.over;
     if (!game.over) return;
     const index = LEVELS.indexOf(game.level);
-    $('next-map').hidden = !(game.phase === 'won' && index >= 0 && index < LEVELS.length - 1);
-    this.setText($('overlay-title'), game.phase === 'won' ? `${game.level.name} secured` : 'Core breached');
+    $('next-map').hidden = !!this.daily || !(game.phase === 'won' && index >= 0 && index < LEVELS.length - 1);
+    $('share-result').hidden = !this.daily;
+    this.setText(
+      $('overlay-title'),
+      (this.daily ? `${t('Daily')}: ` : '') + (game.phase === 'won' ? t('{map} secured', { map: t(game.level.name) }) : t('Core breached')),
+    );
+    const held =
+      game.phase === 'won'
+        ? t(game.lives === 1 ? 'All {waves} waves held with {lives} life left.' : 'All {waves} waves held with {lives} lives left.', { waves: game.totalWaves, lives: game.lives })
+        : t('You fell on wave {n} of {total}.', { n: game.wavesStarted, total: game.totalWaves });
+    const score = dailyScore(game);
     this.setText(
       $('overlay-text'),
-      game.phase === 'won'
-        ? `All ${game.totalWaves} waves held with ${game.lives} ${game.lives === 1 ? 'life' : 'lives'} left.` +
-          (index >= 0 && index < LEVELS.length - 1 ? ` ${LEVELS[index + 1].name} unlocked.` : ' Every map cleared!')
-        : `You fell on wave ${game.wavesStarted} of ${game.totalWaves}.`,
+      this.daily
+        ? `${held} ${t('Score {score} ({wave} per wave held, {life} per life, +{win} for a win).', { score: score.toLocaleString(), wave: DAILY_SCORE.wave, life: DAILY_SCORE.life, win: DAILY_SCORE.win })} ` +
+          (score >= this.dailyBestScore ? t('Your best today!') : t('Best today: {score}.', { score: this.dailyBestScore.toLocaleString() }))
+        : held +
+          (game.phase === 'won'
+            ? ' ' + (index >= 0 && index < LEVELS.length - 1 ? t('{map} unlocked.', { map: t(LEVELS[index + 1].name) }) : t('Every map cleared!'))
+            : ''),
     );
     const html = statsBreakdown(game);
     if (this.cache.get($('overlay-stats')) !== html) {
@@ -320,20 +378,20 @@ function statsBreakdown(game: Game): string {
   const pct = (n: number) => `${Math.round((n / total) * 100)}%`;
   const weapons = Object.entries(damage.byWeapon)
     .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
-    .map(([w, d]) => `<li>${WEAPONS[w as keyof typeof WEAPONS].name}<span>${Math.round(d ?? 0).toLocaleString()}</span></li>`)
+    .map(([w, d]) => `<li>${t(WEAPONS[w as keyof typeof WEAPONS].name)}<span>${Math.round(d ?? 0).toLocaleString()}</span></li>`)
     .join('');
   const comboList = Object.entries(combos)
-    .map(([c, n]) => `<li style="color:${COMBOS[c as keyof typeof COMBOS].color}">${COMBOS[c as keyof typeof COMBOS].name}<span>×${n}</span></li>`)
+    .map(([c, n]) => `<li style="color:${COMBOS[c as keyof typeof COMBOS].color}">${t(COMBOS[c as keyof typeof COMBOS].name)}<span>×${n}</span></li>`)
     .join('');
   return `
     <div class="stat-block">
-      <h3>Kills</h3>
+      <h3>${t('Kills')}</h3>
       <ul>
-        <li>Towers<span>${kills.towers} · ${pct(kills.towers)}</span></li>
+        <li>${t('Towers')}<span>${kills.towers} · ${pct(kills.towers)}</span></li>
         ${game.hero ? `<li>${game.hero.def.callsign}<span>${kills.hero} · ${pct(kills.hero)}</span></li>` : ''}
-        <li>Burn &amp; poison<span>${kills.status} · ${pct(kills.status)}</span></li>
+        <li>${t('Burn & poison')}<span>${kills.status} · ${pct(kills.status)}</span></li>
       </ul>
     </div>
-    <div class="stat-block"><h3>Tower damage</h3><ul>${weapons || '<li>—</li>'}</ul></div>
-    <div class="stat-block"><h3>Combos</h3><ul>${comboList || '<li>None</li>'}</ul></div>`;
+    <div class="stat-block"><h3>${t('Tower damage')}</h3><ul>${weapons || '<li>—</li>'}</ul></div>
+    <div class="stat-block"><h3>${t('Combos')}</h3><ul>${comboList || `<li>${t('None')}</li>`}</ul></div>`;
 }
