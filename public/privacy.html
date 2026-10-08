@@ -16,13 +16,13 @@
         <img src="logo-mark.svg" alt="" width="64" height="64" />
         <div>
           <h1>Privacy Policy</h1>
-          <p class="muted">Neon Wardens · effective October 8, 2026</p>
+          <p class="muted">Neon Wardens · effective October 8, 2026 (online rooms added)</p>
         </div>
       </header>
 
       <p class="lead">
         <strong>Neon Wardens does not collect any personal data.</strong> There are no accounts, no ads, no analytics, and no
-        tracking. Nothing you do in the game is sent to us or to anyone else.
+        tracking. Unless you join an online room (below), nothing you do in the game leaves your device.
       </p>
 
       <h2>What the game stores, and where</h2>
@@ -32,8 +32,8 @@
         <li>a saved run between waves, so you can continue later;</li>
         <li>your best Daily Challenge score for the day;</li>
         <li>your settings: language, sound on or off, and the last hero you picked;</li>
-        <li>a random <strong>Member ID</strong> (like NW-7F3K-9QM2-X4TD), created the first time you play, for future
-          multiplayer. It is not based on your name, account, or device, and it is not sent anywhere.</li>
+        <li>a random <strong>Member ID</strong> (like NW-7F3K-9QM2-X4TD), created the first time you play. It is not based on
+          your name, account, or device, and it only leaves your device if you join an online room.</li>
       </ul>
       <p>
         In a web browser this is kept in the browser's local storage. In the iOS app it is kept in the app's storage on your
@@ -44,12 +44,31 @@
         To delete it, delete the app (iOS), or clear this site's data in your browser settings (web).
       </p>
 
+      <h2>Online multiplayer rooms (optional)</h2>
+      <p>
+        If you create or join an online room, the game uses <strong>Google Firebase</strong> (Realtime Database and anonymous
+        sign-in) to connect the players. While the room is open, Firebase holds:
+      </p>
+      <ul>
+        <li>the room code, and a random anonymous sign-in ID that Firebase creates for your device (no name, email, or account);</li>
+        <li>your Member ID and the hero you picked, so the other players in the room can see who is who;</li>
+        <li>your moves in the game (towers you build, upgrade, or sell, where you move your hero, abilities you use) and the
+          game's state at the end of each wave, so every player's game stays the same.</li>
+      </ul>
+      <p>
+        Only people with the room code can see the room. <strong>When the host leaves or the game ends, the room and
+        everything in it is deleted.</strong> We don't use this data for anything else, and we don't keep it. Like any online
+        service, Google processes connection data such as IP addresses to run Firebase; see
+        <a href="https://firebase.google.com/support/privacy">Privacy and Security in Firebase</a>.
+        Playing alone, or with friends on one device, never uses Firebase.
+      </p>
+
       <h2>What we do not do</h2>
       <ul>
         <li>We do not ask for your name, email, location, contacts, photos, or any other personal information.</li>
-        <li>We do not use advertising, analytics, or crash-reporting services.</li>
+        <li>We do not use advertising, analytics, or crash-reporting services. Firebase is used only for online rooms.</li>
         <li>We do not track you across apps or websites, and we do not sell or share data.</li>
-        <li>The game does not need an internet connection to play. All fonts, art, and sounds are built in.</li>
+        <li>The game does not need an internet connection to play, except in online rooms. All fonts, art, and sounds are built in.</li>
       </ul>
 
       <h2>Sharing your Daily Challenge result</h2>
@@ -71,8 +90,8 @@
 
       <h2>Changes</h2>
       <p>
-        If this policy changes (for example, if online features such as leaderboards are added), this page will be updated
-        before the change takes effect, with a new date at the top.
+        If this policy changes (for example, if leaderboards or accounts are added), this page will be updated before the
+        change takes effect, with a new date at the top.
       </p>
 
       <h2>Contact</h2>

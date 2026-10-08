@@ -90,6 +90,8 @@ export class Hud {
   /** The Daily Challenge being played, if any, and the best score recorded today. */
   private daily: DailyChallenge | null = null;
   private dailyBestScore = 0;
+  /** In an online room: its code and whether this device is the host (controls speed and pause). */
+  private online: { code: string; host: boolean } | null = null;
   /** Campaign runs: the map's best before this run ended, and whether this run beat it. */
   private mapBest: { previous: MapBest | null; isNew: boolean } | null = null;
   private readonly scoreBadge = $('score-badge');
@@ -171,6 +173,11 @@ export class Hud {
     this.dailyBestScore = best;
   }
 
+  setOnline(online: { code: string; host: boolean } | null): void {
+    this.online = online;
+    this.cache.delete($('overlay-text'));
+  }
+
   /** The map's best score when the run ended (campaign runs). */
   setMapBest(result: { previous: MapBest | null; isNew: boolean } | null): void {
     this.mapBest = result;
@@ -199,7 +206,19 @@ export class Hud {
   }
 
   update(game: Game, view: HudView): void {
-    this.setText($('level-name'), this.daily ? t('Daily {date} · {map}', { date: this.daily.date, map: t(game.level.name) }) : t(game.level.name));
+    this.setText(
+      $('level-name'),
+      this.online
+        ? t('Online · room {code} · {map}', { code: this.online.code, map: t(game.level.name) })
+        : this.daily
+          ? t('Daily {date} · {map}', { date: this.daily.date, map: t(game.level.name) })
+          : t(game.level.name),
+    );
+    // Online: only the host sets the speed and pauses; nobody restarts a shared game.
+    const guest = !!this.online && !this.online.host;
+    this.pause.disabled = guest;
+    for (const b of this.speedButtons) b.disabled = guest;
+    $<HTMLButtonElement>('restart-game').disabled = !!this.online;
     this.setText(this.lives, String(game.lives));
     const me = game.players[view.player] ?? game.players[0];
     this.setText(this.gold, String(me.gold));
@@ -421,7 +440,8 @@ export class Hud {
     this.overlay.hidden = !game.over;
     if (!game.over) return;
     const index = LEVELS.indexOf(game.level);
-    $('next-map').hidden = !!this.daily || !(game.phase === 'won' && index >= 0 && index < LEVELS.length - 1);
+    $('next-map').hidden = !!this.daily || !!this.online || !(game.phase === 'won' && index >= 0 && index < LEVELS.length - 1);
+    $('restart').hidden = !!this.online;
     $('share-result').hidden = !this.daily;
     this.setText(
       $('overlay-title'),

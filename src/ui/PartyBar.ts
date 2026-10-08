@@ -24,17 +24,19 @@ export class PartyBar {
     });
   }
 
-  update(game: Game, active: number): void {
+  /** `present`: online, which players (by slot) are connected; disconnected ones are dimmed. */
+  update(game: Game, active: number, present?: boolean[]): void {
     const party = game.players.length > 1;
     this.root.hidden = !party;
     if (!party) return;
-    const key = `${active}:${game.players.map((p) => p.gold).join(',')}:${t('Gold')}`;
+    const key = `${active}:${game.players.map((p) => p.gold).join(',')}:${present?.join(',') ?? ''}:${t('Gold')}`;
     if (key === this.key) return;
     this.key = key;
     const chips = game.players
       .map((p, i) => {
         const el = p.hero ? ELEMENTS[p.hero.def.element] : null;
-        return `<button class="party-chip ${i === active ? 'active' : ''}" data-player="${i}" style="--player-color:${PLAYER_COLORS[i]}" aria-pressed="${i === active}">
+        const gone = present && present[i] === false;
+        return `<button class="party-chip ${i === active ? 'active' : ''} ${gone ? 'gone' : ''}" data-player="${i}" style="--player-color:${PLAYER_COLORS[i]}" aria-pressed="${i === active}" ${gone ? `title="${t('Disconnected')}"` : ''}>
           <span class="party-num">P${i + 1}</span>
           <span class="party-hero">${p.hero ? `<span class="party-name">${p.hero.def.callsign}</span> ${el!.icon}` : p.name}</span>
           <span class="party-gold">${p.gold}</span>

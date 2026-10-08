@@ -1,3 +1,4 @@
+import { dist, powi, ringPoints, sq } from '../systems/dmath';
 import { BATTLEFIELD_BONUS, BATTLEFIELD_IDS, BATTLEFIELDS, type BattlefieldDef, type BattlefieldId } from '../data/battlefields';
 import { SCORE, speedPoints } from '../data/score';
 import { PARTY, PARTY_START_OFFSETS } from '../data/party';
@@ -150,6 +151,12 @@ export interface GameOptions {
    * gold. Without it there is one player with the constructor's hero.
    */
   party?: PartyOptions;
+  /**
+   * Online play: combat randomness (crits, stuns) restarts from this seed and the wave number at
+   * the start of every wave, so a device that resynced from a wave-end snapshot draws the same
+   * numbers as everyone else from then on.
+   */
+  waveSeed?: number;
 }
 
 export interface PartyOptions {
@@ -190,6 +197,25 @@ export interface GameSnapshot {
   stats: GameStats;
   /** Missing in saves from before the score existed (they continue with waves × SCORE.wave). */
   score?: RunScore;
+  /** Online play: everything else a wave-end state needs to continue bit for bit (see LiveState). */
+  live?: LiveState;
+}
+
+/**
+ * The parts of a between-waves game that ordinary saves skip but online resync needs: the
+ * countdown, cooldowns and timers on towers and heroes, and hero zones, strikes, and drones still
+ * running. Restored only with `Game.restore(..., { exact: true })`.
+ */
+export interface LiveState {
+  prepRemaining: number | null;
+  towers: { cooldown: number; boostTime: number; boostMult: number; boostDamage: number; disabledTime: number; aimX: number; aimY: number }[];
+  heroes: {
+    targetX: number; targetY: number; cooldowns: number[]; effects: number[]; effectLengths: number[];
+    attackCooldown: number; attacks: number; buffTime: number; buffAttackSpeed: number; buffDamage: number;
+  }[];
+  zones: (Omit<Zone, 'owner'> & { owner: number })[];
+  strikes: (Omit<Strike, 'owner'> & { owner: number })[];
+  summons: (Omit<Summon, 'owner'> & { owner: number })[];
 }
 
 /** Points earned so far (see SCORE); lives lost are subtracted in `Game.scoreTotal`. */
@@ -277,8 +303,12 @@ export class Game {
   /** See GameOptions. */
   readonly conditionsSeed: number | undefined;
 
-  constructor(readonly level: LevelDef, private readonly rng: Rng = Math.random, heroId: HeroId = 'vex', options: GameOptions = {}) {
+  /** See GameOptions.waveSeed. */
+  readonly waveSeed: number | undefined;
+
+  constructor(readonly level: LevelDef, private rng: Rng = Math.random, heroId: HeroId = 'vex', options: GameOptions = {}) {
     this.conditionsSeed = options.conditionsSeed;
+    this.waveSeed = options.waveSeed;
     this.path = new Path(level.path);
     this.airPath = new Path(level.airPath ?? [level.path[0], level.path[level.path.length - 1]]);
     this.pathTiles = new Set(this.path.tiles().map(([c, r]) => `${c},${r}`));
@@ -322,11 +352,11 @@ export class Game {
    * Continues a run saved with `snapshot()`: same towers, gold, lives, hero level, stats, and
    * the conditions rolled for the next wave. The countdown waits for Ready.
    */
-  static restore(level: LevelDef, snap: GameSnapshot, rng: Rng = Math.random): Game {
+  static restore(level: LevelDef, snap: GameSnapshot, rng: Rng = Math.random, opts: { exact?: boolean; waveSeed?: number } = {}): Game {
     const party = snap.players && snap.players.length > 1
       ? { heroes: snap.players.map((p) => p.heroId ?? 'vex'), memberIds: snap.players.map((p) => p.memberId ?? ''), names: snap.players.map((p) => p.name) }
       : undefined;
-    const game = new Game(level, rng, snap.heroId, { conditionsSeed: snap.conditionsSeed, party });
+    const game = new Game(level, rng, snap.heroId, { conditionsSeed: snap.conditionsSeed, party, waveSeed: opts.waveSeed });
     game.wavesStarted = snap.wavesStarted;
     game.gold = snap.gold;
     snap.players?.forEach((p, i) => {
@@ -356,6 +386,7 @@ export class Game {
     }
     game.stats = structuredClone(snap.stats);
     game.score = snap.score ? { ...snap.score } : { waves: snap.wavesStarted * SCORE.wave, speed: 0 };
+    if (opts.exact && snap.live) game.restoreLive(snap.live);
     return game;
   }
 
@@ -386,7 +417,48 @@ export class Game {
           : undefined,
       stats: structuredClone(this.stats),
       score: { ...this.score },
+      live: this.liveState(),
     };
+  }
+
+  private liveState(): LiveState {
+    const ownerOf = (h: Hero) => h.player;
+    return {
+      prepRemaining: this.prepRemaining,
+      towers: this.towers.map((t) => ({
+        cooldown: t.cooldown, boostTime: t.boostTime, boostMult: t.boostMult, boostDamage: t.boostDamage,
+        disabledTime: t.disabledTime, aimX: t.aimX, aimY: t.aimY,
+      })),
+      heroes: this.heroes.map((h) => ({
+        targetX: h.targetX, targetY: h.targetY, cooldowns: [...h.cooldowns], effects: [...h.effects], effectLengths: [...h.effectLengths],
+        attackCooldown: h.attackCooldown, attacks: h.attacks, buffTime: h.buffTime, buffAttackSpeed: h.buffAttackSpeed, buffDamage: h.buffDamage,
+      })),
+      zones: this.zones.map((z) => ({ ...z, owner: ownerOf(z.owner) })),
+      strikes: this.strikes.map((z) => ({ ...z, owner: ownerOf(z.owner) })),
+      // `angle` is drawing only (and atan2 differs between engines), so it's left out.
+      summons: this.summons.map((z) => ({ ...z, angle: 0, owner: ownerOf(z.owner) })),
+    };
+  }
+
+  private restoreLive(live: LiveState): void {
+    this.prepRemaining = live.prepRemaining;
+    live.towers.forEach((l, i) => {
+      const t = this.towers[i];
+      if (t) Object.assign(t, l);
+    });
+    live.heroes.forEach((l, i) => {
+      const h = this.heroes[i];
+      if (!h) return;
+      const { cooldowns, effects, effectLengths, ...rest } = l;
+      Object.assign(h, rest);
+      cooldowns.forEach((v, k) => (h.cooldowns[k] = v));
+      effects.forEach((v, k) => (h.effects[k] = v));
+      effectLengths.forEach((v, k) => (h.effectLengths[k] = v));
+    });
+    const hero = (p: number) => this.players[p]?.hero ?? this.heroes[0];
+    this.zones = live.zones.map((z) => ({ ...z, owner: hero(z.owner) }));
+    this.strikes = live.strikes.map((z) => ({ ...z, owner: hero(z.owner) }));
+    this.summons = live.summons.map((z) => ({ ...z, owner: hero(z.owner) }));
   }
 
   /** The run's score: wave and speed points, minus SCORE.life per life below the starting lives (never below 0). */
@@ -495,6 +567,7 @@ export class Game {
     this.prepRemaining = null;
     this.spawnQueue = buildSpawnQueue(this.level.waves[this.wavesStarted], this.level.hpScale);
     this.wavesStarted++;
+    if (this.waveSeed !== undefined) this.rng = seededRng((this.waveSeed ^ Math.imul(this.wavesStarted, 0x85ebca6b)) >>> 0);
     this.waveTime = 0;
     // Speed points: the clock starts at the last spawn; the window is the slowest enemy's whole route.
     this.waveSpawnEnd = this.spawnQueue.at(-1)?.time ?? 0;
@@ -556,7 +629,7 @@ export class Game {
       if (!ability || !e.alive) continue;
       switch (ability.kind) {
         case 'stealth':
-          e.hidden = !this.towers.some((t) => (t.x - e.x) ** 2 + (t.y - e.y) ** 2 <= ability.revealRange ** 2);
+          e.hidden = !this.towers.some((t) => sq((t.x - e.x)) + sq((t.y - e.y)) <= sq(ability.revealRange));
           break;
         case 'heal': {
           e.abilityTimer -= dt;
@@ -565,7 +638,7 @@ export class Game {
           let healed = false;
           for (const other of this.enemies) {
             if (other === e || !other.alive || other.hp >= other.maxHp) continue;
-            if ((other.x - e.x) ** 2 + (other.y - e.y) ** 2 > ability.radius ** 2) continue;
+            if (sq((other.x - e.x)) + sq((other.y - e.y)) > sq(ability.radius)) continue;
             other.hp = Math.min(other.maxHp, other.hp + other.maxHp * ability.fraction);
             healed = true;
           }
@@ -595,7 +668,7 @@ export class Game {
           e.abilityTimer = Math.max(0, e.abilityTimer - dt);
           if (e.abilityTimer > 0) break;
           // Waits, charged, until a tower is in reach.
-          const hit = this.towers.filter((t) => (t.x - e.x) ** 2 + (t.y - e.y) ** 2 <= ability.radius ** 2);
+          const hit = this.towers.filter((t) => sq((t.x - e.x)) + sq((t.y - e.y)) <= sq(ability.radius));
           if (hit.length === 0) break;
           e.abilityTimer = ability.interval;
           for (const t of hit) {
@@ -634,14 +707,14 @@ export class Game {
         case 'fortify':
           for (const other of this.enemies) {
             if (other === e || !other.alive) continue;
-            if ((other.x - e.x) ** 2 + (other.y - e.y) ** 2 > ability.radius ** 2) continue;
+            if (sq((other.x - e.x)) + sq((other.y - e.y)) > sq(ability.radius)) continue;
             other.bonusArmor = Math.max(other.bonusArmor, ability.armor);
           }
           break;
         case 'surge':
           for (const other of this.enemies) {
             if (other === e || !other.alive) continue;
-            if ((other.x - e.x) ** 2 + (other.y - e.y) ** 2 > ability.radius ** 2) continue;
+            if (sq((other.x - e.x)) + sq((other.y - e.y)) > sq(ability.radius)) continue;
             other.surgeMult = Math.max(other.surgeMult, ability.speed);
           }
           break;
@@ -735,7 +808,7 @@ export class Game {
       const p = e.route.pointAt(e.distance);
       const dx = p.x - e.x;
       const dy = p.y - e.y;
-      const len = Math.hypot(dx, dy);
+      const len = dist(dx, dy);
       if (len > 1e-6) {
         e.dirX = dx / len;
         e.dirY = dy / len;
@@ -773,7 +846,15 @@ export class Game {
       const count = attack.kind === 'multi' ? attack.maxTargets : 1;
       const picked = selectTargets(this.enemies, t.x, t.y, range, targets, t.priority, count);
       if (picked.length === 0) continue;
-      t.angle = Math.atan2(picked[0].y - t.y, picked[0].x - t.x);
+      // Aim direction for shots (rules); the angle is only for drawing the barrel.
+      const ax = picked[0].x - t.x;
+      const ay = picked[0].y - t.y;
+      const alen = dist(ax, ay);
+      if (alen > 1e-9) {
+        t.aimX = ax / alen;
+        t.aimY = ay / alen;
+      }
+      t.angle = Math.atan2(ay, ax);
       if (t.cooldown > 0) continue;
       this.fire(t, picked);
       t.cooldown = 1 / t.stats.fireRate;
@@ -796,7 +877,7 @@ export class Game {
         break;
       case 'splash': {
         const target = picked[0];
-        const flight = Math.hypot(target.x - t.x, target.y - t.y) / t.stats.projectileSpeed;
+        const flight = dist(target.x - t.x, target.y - t.y) / t.stats.projectileSpeed;
         const lead = Math.min(target.speed, attack.leadSpeedCap) * flight;
         this.projectiles.push(new Projectile(t, target, target.route.pointAt(target.distance + lead)));
         break;
@@ -805,7 +886,7 @@ export class Game {
         const chain = chainTargets(picked[0], this.enemies, attack.jumps, attack.jumpRange, t.stats.targets);
         const points = [{ x: t.x, y: t.y - 0.25 }, ...chain.map((e) => ({ x: e.x, y: e.y }))];
         this.effects.push({ kind: 'beam', x: t.x, y: t.y, points, element: t.element, ttl: 0.18, maxTtl: 0.18, color: '' });
-        chain.forEach((e, i) => this.hit(e, t, (1 - attack.falloff) ** i));
+        chain.forEach((e, i) => this.hit(e, t, powi((1 - attack.falloff), i)));
         break;
       }
     }
@@ -819,13 +900,13 @@ export class Game {
       }
       const dx = p.tx - p.x;
       const dy = p.ty - p.y;
-      const dist = Math.hypot(dx, dy);
+      const len = dist(dx, dy);
       const step = p.source.stats.projectileSpeed * dt;
-      if (dist > 1e-6) {
-        p.dirX = dx / dist;
-        p.dirY = dy / dist;
+      if (len > 1e-6) {
+        p.dirX = dx / len;
+        p.dirY = dy / len;
       }
-      if (dist > step) {
+      if (len > step) {
         p.x += p.dirX * step;
         p.y += p.dirY * step;
         continue;
@@ -839,7 +920,7 @@ export class Game {
         this.sound('blast');
         for (const e of this.enemies) {
           if (!e.alive || !p.source.stats.targets.includes(e.movement)) continue;
-          if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 <= radius * radius) this.hit(e, p.source);
+          if (sq((e.x - p.x)) + sq((e.y - p.y)) <= radius * radius) this.hit(e, p.source);
         }
       } else if (p.target.alive) {
         this.effects.push({ kind: 'spark', x: p.x, y: p.y, element: p.source.element, ttl: 0.25, maxTtl: 0.25, color: '' });
@@ -892,7 +973,7 @@ export class Game {
     let mult = tower.boostTime > 0 ? tower.boostDamage : 1;
     for (const hero of this.heroes) {
       const p = hero.def.passive?.effect;
-      if (p?.kind === 'tower-aura' && (tower.x - hero.x) ** 2 + (tower.y - hero.y) ** 2 <= p.radius ** 2) mult *= 1 + p.damage;
+      if (p?.kind === 'tower-aura' && sq((tower.x - hero.x)) + sq((tower.y - hero.y)) <= sq(p.radius)) mult *= 1 + p.damage;
     }
     return mult;
   }
@@ -902,7 +983,7 @@ export class Game {
     let mult = 1;
     for (const hero of this.heroes) {
       const p = hero.def.passive?.effect;
-      if (p?.kind === 'tower-rate-aura' && (tower.x - hero.x) ** 2 + (tower.y - hero.y) ** 2 <= p.radius ** 2) mult *= 1 + p.rate;
+      if (p?.kind === 'tower-rate-aura' && sq((tower.x - hero.x)) + sq((tower.y - hero.y)) <= sq(p.radius)) mult *= 1 + p.rate;
     }
     return mult;
   }
@@ -921,7 +1002,7 @@ export class Game {
         const { splashRadius, splashFraction } = COMBO_NUMBERS.steam;
         this.effects.push({ kind: 'pulse', x: enemy.x, y: enemy.y, radius: splashRadius, ttl: 0.45, maxTtl: 0.45, color: def.color });
         for (const e of this.enemies) {
-          if (e === enemy || !e.alive || (e.x - enemy.x) ** 2 + (e.y - enemy.y) ** 2 > splashRadius ** 2) continue;
+          if (e === enemy || !e.alive || sq((e.x - enemy.x)) + sq((e.y - enemy.y)) > sq(splashRadius)) continue;
           this.track('damage', source, e.takeDamage(steamBurst * splashFraction));
           if (!e.alive) this.reward(e, source);
         }
@@ -934,7 +1015,7 @@ export class Game {
         const src = enemy.status;
         for (const e of this.enemies) {
           if (e === enemy || !e.alive || e.shield > 0) continue;
-          if ((e.x - enemy.x) ** 2 + (e.y - enemy.y) ** 2 > spreadRadius ** 2) continue;
+          if (sq((e.x - enemy.x)) + sq((e.y - enemy.y)) > sq(spreadRadius)) continue;
           e.status.burnDps = Math.max(e.status.burnTime > 0 ? e.status.burnDps : 0, src.burnDps);
           e.status.burnTime = Math.max(e.status.burnTime, src.burnTime);
           this.effects.push({
@@ -999,7 +1080,7 @@ export class Game {
     const hero = this.players[player]?.hero;
     if (!hero || !this.heroAbilityReady(slot, player)) return false;
     const def = hero.ability(slot);
-    if (def.target === 'point' && Math.hypot(x - hero.x, y - hero.y) > def.castRange) return false;
+    if (def.target === 'point' && dist(x - hero.x, y - hero.y) > def.castRange) return false;
     if (def.target === 'self') {
       x = hero.x;
       y = hero.y;
@@ -1045,7 +1126,7 @@ export class Game {
         this.effects.push({ kind: 'pulse', x: hero.x, y: hero.y, radius: 0.9, ttl: 0.4, maxTtl: 0.4, color });
         break;
       case 'pierce': {
-        const len = Math.hypot(x - hero.x, y - hero.y) || 1;
+        const len = dist(x - hero.x, y - hero.y) || 1;
         const dx = (x - hero.x) / len;
         const dy = (y - hero.y) / len;
         const ex = hero.x + dx * eff.length;
@@ -1053,7 +1134,7 @@ export class Game {
         for (const e of this.enemies) {
           if (!e.alive || e.def.ability?.kind === 'mirror') continue;
           const t = Math.max(0, Math.min(eff.length, (e.x - hero.x) * dx + (e.y - hero.y) * dy));
-          if (Math.hypot(e.x - (hero.x + dx * t), e.y - (hero.y + dy * t)) <= eff.width) this.heroDamage(e, eff.damage * m, hero);
+          if (dist(e.x - (hero.x + dx * t), e.y - (hero.y + dy * t)) <= eff.width) this.heroDamage(e, eff.damage * m, hero);
         }
         this.effects.push({
           kind: 'beam', x: hero.x, y: hero.y, points: [{ x: hero.x, y: hero.y }, { x: ex, y: ey }],
@@ -1094,7 +1175,7 @@ export class Game {
         break;
       case 'chain': {
         const near = this.heroTargetsWithin(x, y, 1.5).sort(
-          (a, b) => (a.x - x) ** 2 + (a.y - y) ** 2 - ((b.x - x) ** 2 + (b.y - y) ** 2),
+          (a, b) => sq((a.x - x)) + sq((a.y - y)) - (sq((b.x - x)) + sq((b.y - y))),
         )[0];
         if (!near) break;
         const pool = this.enemies.filter((e) => e.def.ability?.kind !== 'mirror');
@@ -1106,7 +1187,7 @@ export class Game {
         });
         chain.forEach((e, i) => {
           if (eff.stripShields) e.shield = 0;
-          this.heroDamage(e, eff.damage * m * (1 - eff.falloff) ** i, hero);
+          this.heroDamage(e, eff.damage * m * powi((1 - eff.falloff), i), hero);
         });
         break;
       }
@@ -1119,16 +1200,15 @@ export class Game {
         this.effects.push({ kind: 'pulse', x: hero.x, y: hero.y, radius: 6, ttl: 0.8, maxTtl: 0.8, color });
         break;
       case 'summon':
-        for (let i = 0; i < eff.count; i++) {
-          const a = (i / eff.count) * Math.PI * 2;
+        ringPoints(eff.count).forEach(([cx, cy]) => {
           const r = eff.count > 1 ? 0.9 : 0;
           this.summons.push({
-            x: Math.min(Math.max(x + Math.cos(a) * r, 0.3), this.level.cols - 0.3),
-            y: Math.min(Math.max(y + Math.sin(a) * r, 0.3), this.level.rows - 0.3),
+            x: Math.min(Math.max(x + cx * r, 0.3), this.level.cols - 0.3),
+            y: Math.min(Math.max(y + cy * r, 0.3), this.level.rows - 0.3),
             ttl: eff.duration, maxTtl: eff.duration, damage: eff.damage * m, fireRate: eff.fireRate,
             range: eff.range, cooldown: 0, angle: 0, owner: hero,
           });
-        }
+        });
         break;
       case 'repair': {
         const healed = Math.min(eff.lives, this.level.lives - this.lives);
@@ -1140,7 +1220,7 @@ export class Game {
       }
       case 'tower-boost':
         for (const t of this.towers) {
-          if ((t.x - x) ** 2 + (t.y - y) ** 2 > eff.radius ** 2) continue;
+          if (sq((t.x - x)) + sq((t.y - y)) > sq(eff.radius)) continue;
           t.boostTime = eff.duration;
           t.boostMult = eff.fireRate ?? 1;
           t.boostDamage = eff.damage ?? 1;
@@ -1162,7 +1242,7 @@ export class Game {
     // Cooldowns stop while a Jammer is near; effect countdowns keep running.
     hero.jammed = this.enemies.some((e) => {
       const a = e.def.ability;
-      return e.alive && a?.kind === 'jam' && (e.x - hero.x) ** 2 + (e.y - hero.y) ** 2 <= a.radius ** 2;
+      return e.alive && a?.kind === 'jam' && sq((e.x - hero.x)) + sq((e.y - hero.y)) <= sq(a.radius);
     });
     for (let i = 0; i < 4; i++) {
       if (!hero.jammed) hero.cooldowns[i] = Math.max(0, hero.cooldowns[i] - dt);
@@ -1186,10 +1266,10 @@ export class Game {
     if (hero.moving) {
       const dx = hero.targetX - hero.x;
       const dy = hero.targetY - hero.y;
-      const dist = Math.hypot(dx, dy);
-      const step = Math.min(dist, hero.def.speed * dt);
-      hero.x += (dx / dist) * step;
-      hero.y += (dy / dist) * step;
+      const len = dist(dx, dy);
+      const step = Math.min(len, hero.def.speed * dt);
+      hero.x += (dx / len) * step;
+      hero.y += (dy / len) * step;
       hero.angle = Math.atan2(dy, dx);
     }
 
@@ -1223,7 +1303,7 @@ export class Game {
         kind: 'beam', x: hero.x, y: hero.y, points: [{ x: hero.x, y: hero.y }, ...chain.map((e) => ({ x: e.x, y: e.y }))],
         element: 'metal', ttl: 0.15, maxTtl: 0.15, color,
       });
-      chain.forEach((e, i) => strike(e, damage * 0.75 ** i));
+      chain.forEach((e, i) => strike(e, damage * powi(0.75, i)));
       this.sound('hero-zap');
     } else {
       this.effects.push({
@@ -1313,7 +1393,7 @@ export class Game {
   /** Living enemies within `radius` of (x, y) that the hero can affect (not Mirrors). */
   private heroTargetsWithin(x: number, y: number, radius: number): Enemy[] {
     return this.enemies.filter(
-      (e) => e.alive && e.def.ability?.kind !== 'mirror' && (e.x - x) ** 2 + (e.y - y) ** 2 <= radius * radius,
+      (e) => e.alive && e.def.ability?.kind !== 'mirror' && sq((e.x - x)) + sq((e.y - y)) <= radius * radius,
     );
   }
 
@@ -1357,7 +1437,7 @@ export class Game {
   }
 
   private heroXpFor(hero: Hero, enemy: Enemy): void {
-    if ((enemy.x - hero.x) ** 2 + (enemy.y - hero.y) ** 2 > HERO_LEVELS.xpRadius ** 2) return;
+    if (sq((enemy.x - hero.x)) + sq((enemy.y - hero.y)) > sq(HERO_LEVELS.xpRadius)) return;
     hero.kills++;
     while (hero.level < MAX_HERO_LEVEL && hero.kills >= HERO_LEVELS.levelKills[hero.level - 1]) {
       hero.level++;
@@ -1393,7 +1473,7 @@ export class Game {
     let bonus = 0;
     for (const hero of this.heroes) {
       const p = hero.def.passive?.effect;
-      if (p?.kind === 'bounty' && (enemy.x - hero.x) ** 2 + (enemy.y - hero.y) ** 2 <= p.radius ** 2) bonus = Math.max(bonus, Math.max(1, Math.round(enemy.reward * p.gold)));
+      if (p?.kind === 'bounty' && sq((enemy.x - hero.x)) + sq((enemy.y - hero.y)) <= sq(p.radius)) bonus = Math.max(bonus, Math.max(1, Math.round(enemy.reward * p.gold)));
     }
     // The gold goes to whoever made the kill (burn and poison: the enemy's last hitter).
     const owner = source.kind === 'tower' ? source.owner : source.kind === 'hero' ? source.player : enemy.lastHitBy;

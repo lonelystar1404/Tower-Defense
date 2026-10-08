@@ -1,3 +1,4 @@
+import { sq } from './dmath';
 import type { MovementType } from '../data/enemies';
 
 export type TargetPriority = 'first' | 'last' | 'strongest' | 'closest';
@@ -30,7 +31,7 @@ export function selectTargets<T extends Targetable>(
   const scored: { e: T; score: number }[] = [];
   for (const e of enemies) {
     if (!e.alive || e.hidden || !targets.includes(e.movement)) continue;
-    const d2 = (e.x - x) ** 2 + (e.y - y) ** 2;
+    const d2 = sq((e.x - x)) + sq((e.y - y));
     if (d2 > range2) continue;
     const score =
       priority === 'first' ? -e.remaining
@@ -74,7 +75,7 @@ export function chainTargets<T extends Targetable>(
     let bestD2 = range2;
     for (const e of enemies) {
       if (!e.alive || e.hidden || chain.includes(e) || !targets.includes(e.movement)) continue;
-      const d2 = (e.x - last.x) ** 2 + (e.y - last.y) ** 2;
+      const d2 = sq((e.x - last.x)) + sq((e.y - last.y));
       if (d2 <= bestD2) {
         bestD2 = d2;
         next = e;

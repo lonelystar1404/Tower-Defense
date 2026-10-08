@@ -1,12 +1,10 @@
 import './style.css';
 import { LEVELS, type LevelDef } from './data/levels';
 import type { ElementId } from './data/elements';
-import { BUILD_ELEMENTS, BUILD_WEAPONS } from './data/towers';
+import { BUILD_ELEMENTS, BUILD_WEAPONS, towerCost } from './data/towers';
 import type { WeaponId } from './data/weapons';
-import type { Tower } from './entities/Tower';
 import { Game } from './game/Game';
 import { Renderer, type ViewState } from './render/Renderer';
-import { TARGET_PRIORITIES } from './systems/targeting';
 import { ELEMENT_KEYS, Hud } from './ui/Hud';
 import { HeroBar } from './ui/HeroBar';
 import { ABILITY_KEYS, HERO_IDS, HEROES, type HeroId } from './data/hero';
@@ -16,6 +14,10 @@ import { MapMenu } from './ui/MapMenu';
 import { initTooltips } from './ui/tooltip';
 import { PartyBar } from './ui/PartyBar';
 import { memberId } from './platform/member';
+import { applyCommand, roundPos, type Command } from './net/commands';
+import type { Lockstep, RoomSetup } from './net/lockstep';
+import type { Room, RoomMeta, RoomState, OnlineError } from './net/online';
+import { Lobby } from './ui/Lobby';
 import { isHeroUnlocked, loadProgress, markCleared } from './ui/progress';
 import { dailyChallenge, dailyScore, type DailyChallenge } from './game/daily';
 import { clearRun, DAILY_SLOT, loadRun, recordDaily, recordMapBest, saveRun, type SaveSlot } from './ui/saves';
@@ -67,9 +69,9 @@ const view: ViewState & { element: ElementId; speed: number; paused: boolean; to
 /** The hero of the player using this screen. */
 const myHero = () => game.players[view.player]?.hero ?? null;
 
-/** Plays as `player` on a shared device (multiplayer); drops aiming and hero selection. */
+/** Plays as `player` on a shared device (multiplayer); drops aiming and hero selection. Online, you're always your own player. */
 function setPlayer(player: number): void {
-  if (player === view.player || !game.players[player]) return;
+  if (online || player === view.player || !game.players[player]) return;
   view.player = player;
   view.aiming = null;
   view.heroSelected = false;
@@ -99,7 +101,9 @@ function updateMuteButton(): void {
 muteButton.addEventListener('click', toggleMute);
 updateMuteButton();
 const hud = new Hud({
-  startWave: () => game.startWave(),
+  startWave: () => {
+    if (game.phase === 'build') act({ k: 'ready' });
+  },
   chooseWeapon,
   chooseElement,
   sellSelected,
@@ -112,15 +116,14 @@ const hud = new Hud({
   cyclePriority: () => {
     const t = view.selected;
     if (!t) return;
-    t.priority = TARGET_PRIORITIES[(TARGET_PRIORITIES.indexOf(t.priority) + 1) % TARGET_PRIORITIES.length];
+    if (t.owner !== view.player) return sound.play('denied');
+    act({ k: 'prio', c: t.col, r: t.row });
   },
   setSpeed: (speed) => {
     view.speed = speed;
     view.paused = false;
   },
-  togglePause: () => {
-    view.paused = !view.paused;
-  },
+  togglePause,
   restart: () => restartRun(),
   restartGame: () => {
     const inProgress = game.wavesStarted > 0 && !game.over;
@@ -128,6 +131,12 @@ const hud = new Hud({
     restartRun();
   },
   openMaps: () => {
+    if (online) {
+      if (!game.over && !window.confirm(t('Leave the online room? The game goes on without you.'))) return;
+      void leaveOnline();
+      menu.show(progress, false);
+      return;
+    }
     persist();
     menu.show(progress, true);
   },
@@ -161,7 +170,7 @@ function useAbility(slot: number): void {
   }
   const def = hero.ability(slot);
   if (def.target !== 'point') {
-    game.castHero(slot, 0, 0, view.player);
+    act({ k: 'cast', s: slot, x: 0, y: 0 });
     return;
   }
   view.aiming = view.aiming === slot ? null : slot;
@@ -177,7 +186,7 @@ function useAbility(slot: number): void {
 function pickLevel(next: LevelDef, mode: 'single' | 'party' = 'party'): void {
   menu.hide();
   const unlocked = (id: HeroId) => isHeroUnlocked(HEROES[id], progress);
-  if (next.multiplayer) return heroSelect.show(next, unlocked, mode);
+  if (next.multiplayer) return mode === 'party' ? lobby.choose(next, '', rejoinCode()) : heroSelect.show(next, unlocked, 'single');
   party = null;
   if (next.heroStart && next.heroMode === 'random') {
     const pool = HERO_IDS.filter((id) => isHeroUnlocked(HEROES[id], progress));
@@ -272,6 +281,7 @@ function resume(next: Game, where: typeof run): void {
 
 /** Saves the run if it's between waves (see Game.snapshot). */
 function persist(): void {
+  if (online) return;
   const snapshot = game.snapshot();
   if (!snapshot) return;
   saveRun(run.slot, { snapshot, date: run.daily?.date });
@@ -339,13 +349,35 @@ function chooseElement(element: ElementId): void {
 }
 
 function upgradeSelected(): void {
-  if (view.selected && !game.upgrade(view.selected, view.player)) sound.play('denied');
+  const tw = view.selected;
+  if (!tw) return;
+  const cost = game.nextUpgradeCost(tw);
+  const ok = tw.owner === view.player && cost !== null && game.players[view.player].gold >= cost && !game.isLocked(tw);
+  if (!ok || !act({ k: 'up', c: tw.col, r: tw.row })) sound.play('denied');
 }
 
 function sellSelected(): void {
-  if (!view.selected) return;
-  if (!game.sell(view.selected, view.player)) sound.play('denied');
+  const tw = view.selected;
+  if (!tw) return;
+  if (tw.owner !== view.player || !act({ k: 'sell', c: tw.col, r: tw.row })) sound.play('denied');
   view.selected = null;
+}
+
+/**
+ * Every action that changes the game goes through here: applied at once when playing on this
+ * device, sent to the host in an online room (it comes back in a turn for everyone).
+ */
+function act(cmd: Command): boolean {
+  if (online) {
+    if (!online.session || game.over) return false;
+    online.session.send(cmd);
+    return true;
+  }
+  return applyCommand(game, view.player, cmd);
+}
+
+function moveMyHero(x: number, y: number): void {
+  act({ k: 'move', x: roundPos(x), y: roundPos(y) });
 }
 
 function tileAt(ev: MouseEvent): { col: number; row: number } {
@@ -382,7 +414,7 @@ function secondaryAction(p: { x: number; y: number }): void {
     return;
   }
   if (myHero()) {
-    game.moveHero(p.x, p.y, view.player);
+    moveMyHero(p.x, p.y);
     return;
   }
   view.selected = null;
@@ -446,15 +478,19 @@ canvas.addEventListener('click', (ev) => {
       view.pointer = p;
       return;
     }
-    if (game.castHero(view.aiming, p.x, p.y, view.player)) view.aiming = null;
-    else {
+    const hero = myHero();
+    const reach = hero ? hero.ability(view.aiming).castRange : 0;
+    if (hero && game.heroAbilityReady(view.aiming, view.player) && Math.hypot(p.x - hero.x, p.y - hero.y) <= reach) {
+      act({ k: 'cast', s: view.aiming, x: roundPos(p.x), y: roundPos(p.y) });
+      view.aiming = null;
+    } else {
       sound.play('denied');
       if (touch) view.pointer = p;
     }
     return;
   }
   // Tapping a hero selects it (on a shared device, another player's hero switches to them).
-  const tapped = view.buildChoice ? undefined : game.heroes.find((h) => Math.hypot(p.x - h.x, p.y - h.y) < 0.55);
+  const tapped = view.buildChoice ? undefined : game.heroes.find((h) => Math.hypot(p.x - h.x, p.y - h.y) < 0.55 && (!online || h.player === view.player));
   if (tapped) {
     if (tapped.player !== view.player) setPlayer(tapped.player);
     selectHero();
@@ -462,7 +498,7 @@ canvas.addEventListener('click', (ev) => {
   }
   const hero = myHero();
   if (hero && view.heroSelected && !view.buildChoice && !game.towerAt(col, row)) {
-    game.moveHero(p.x, p.y, view.player);
+    moveMyHero(p.x, p.y);
     return;
   }
   const existing = game.towerAt(col, row);
@@ -480,7 +516,9 @@ canvas.addEventListener('click', (ev) => {
       view.pointer = p;
       return;
     }
-    const built: Tower | null = game.build(col, row, view.buildChoice, view.player);
+    const choice = view.buildChoice;
+    const affordable = game.players[view.player].gold >= towerCost(choice);
+    const built = game.canBuild(col, row) && affordable && !game.isLocked(choice) && act({ k: 'build', c: col, r: row, w: choice.weapon, e: choice.element });
     if (!built) {
       sound.play('denied');
       if (touch) view.hover = { col, row };
@@ -494,10 +532,10 @@ canvas.addEventListener('click', (ev) => {
 
 window.addEventListener('keydown', (ev) => {
   if (ev.target instanceof HTMLInputElement || ev.metaKey || ev.ctrlKey || ev.altKey) return;
-  if (menu.open || heroSelect.open) return;
+  if (menu.open || heroSelect.open || lobby.open) return;
   if (ev.code === 'Space') {
     ev.preventDefault();
-    game.startWave();
+    if (game.phase === 'build') act({ k: 'ready' });
   } else if (ev.key === 'Escape') {
     cancelTool();
     view.selected = null;
@@ -517,7 +555,7 @@ window.addEventListener('keydown', (ev) => {
   } else if ((ABILITY_KEYS as readonly string[]).includes(ev.key.toUpperCase())) {
     useAbility((ABILITY_KEYS as readonly string[]).indexOf(ev.key.toUpperCase()));
   } else if (ev.key === 'p' || ev.key === 'P') {
-    view.paused = !view.paused;
+    togglePause();
   } else if (/^[1-9]$/.test(ev.key)) {
     const weapon = BUILD_WEAPONS[Number(ev.key) - 1];
     if (weapon) chooseWeapon(weapon);
@@ -527,15 +565,200 @@ window.addEventListener('keydown', (ev) => {
   }
 });
 
+// --- Online rooms ---------------------------------------------------------------------------
+
+/**
+ * An online room this device is in. The Firebase code (src/net/online.ts) is loaded the first
+ * time someone opens online play. `session` exists once the host starts the game.
+ */
+let online: {
+  mod: typeof import('./net/online');
+  room: Room;
+  level: LevelDef;
+  state: RoomState | null;
+  session: Lockstep | null;
+  /** Which players (by slot) are connected. */
+  present: boolean[];
+  /** Real time (s) the client has been waiting for the host's next turn. */
+  waiting: number;
+  starting: boolean;
+} | null = null;
+
+const ROOM_KEY = 'td-room';
+/** How long after leaving a room the chooser offers to rejoin it. */
+const REJOIN_MS = 3 * 60 * 60 * 1000;
+
+function rememberRoom(code: string | null): void {
+  try {
+    if (code) localStorage.setItem(ROOM_KEY, JSON.stringify({ code, at: Date.now() }));
+    else localStorage.removeItem(ROOM_KEY);
+  } catch {
+    // Storage blocked: no rejoin offer.
+  }
+}
+
+/** The room this device was last in, if recent (offered as Rejoin). */
+function rejoinCode(): string | undefined {
+  try {
+    const r = JSON.parse(localStorage.getItem(ROOM_KEY) ?? 'null') as { code?: string; at?: number } | null;
+    return r?.code && Date.now() - (r.at ?? 0) < REJOIN_MS ? r.code : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function onlineErrorText(reason: OnlineError): string {
+  switch (reason) {
+    case 'setup':
+      return t('Online play isn’t switched on for this game yet. Try again later.');
+    case 'not-found':
+      return t('No room with that code. Check it and try again.');
+    case 'full':
+      return t('That room is full (5 players).');
+    case 'started':
+      return t('That game has already started.');
+    case 'version':
+      return t('That room is on a different version of the game. Update and try again.');
+    default:
+      return t('Can’t reach the server. Check your connection and try again.');
+  }
+}
+
+async function enterRoom(level: LevelDef, open: (mod: typeof import('./net/online')) => Promise<Room>): Promise<void> {
+  lobby.busy(t('Connecting…'));
+  try {
+    const mod = await import('./net/online');
+    const room = await open(mod);
+    online = { mod, room, level, state: null, session: null, present: [], waiting: 0, starting: false };
+    rememberRoom(room.code);
+    room.watch((state) => onRoomState(state));
+  } catch (e) {
+    const reason = (e as { reason?: OnlineError }).reason ?? 'network';
+    console.warn('Online:', e);
+    lobby.choose(level, onlineErrorText(reason), rejoinCode());
+  }
+}
+
+function onRoomState(state: RoomState): void {
+  const o = online;
+  if (!o) return;
+  o.state = state;
+  const meta = state.meta;
+  if (!meta) {
+    // The host left: the room and its data are gone.
+    if (o.session && !o.session.game.over) setNetStatus(t('Room closed: the host left.'));
+    else if (!o.session) lobby.choose(o.level, t('The room was closed.'));
+    rememberRoom(null);
+    void o.room.leave();
+    hud.setOnline(null);
+    online = null;
+    return;
+  }
+  if (meta.status === 'lobby') {
+    lobby.showRoom(o.room.code, o.room.uid, o.room.isHost, state);
+    return;
+  }
+  if (meta.order) o.present = meta.order.map((uid) => state.players.some((p) => p.uid === uid));
+  if (!o.room.isHost) view.paused = !!meta.paused;
+  if (!o.session && !o.starting) void startOnline(meta);
+}
+
+/** The host started (or this device rejoined a game in progress): build the shared game. */
+async function startOnline(meta: RoomMeta): Promise<void> {
+  const o = online;
+  if (!o || !meta.order || !meta.heroes) return;
+  o.starting = true;
+  const lvl = LEVELS.find((l) => l.id === meta.level) ?? o.level;
+  const setup: RoomSetup = {
+    level: lvl, seed: meta.seed, heroes: meta.heroes, memberIds: meta.members ?? [], names: meta.order.map((_, i) => `P${i + 1}`),
+  };
+  const slot = meta.order.indexOf(o.room.uid);
+  const check = o.room.isHost ? null : await o.room.latestCheck().catch(() => null);
+  const { Lockstep } = await import('./net/lockstep');
+  if (online !== o) return;
+  o.session = new Lockstep(setup, o.room.transport(meta.order), slot, check ?? undefined);
+  lobby.hide();
+  resume(o.session.game, { slot: 'online', daily: null });
+  view.player = slot;
+  view.speed = 1;
+  hud.setOnline({ code: o.room.code, host: o.room.isHost });
+}
+
+/** Leaves the room (the host's leaving closes it for everyone). */
+async function leaveOnline(): Promise<void> {
+  const o = online;
+  online = null;
+  rememberRoom(null);
+  hud.setOnline(null);
+  setNetStatus('');
+  view.paused = false;
+  if (o) await o.room.leave();
+}
+
+const netStatus = document.getElementById('net-status')!;
+function setNetStatus(text: string): void {
+  netStatus.hidden = !text;
+  if (netStatus.textContent !== text) netStatus.textContent = text;
+}
+
+function togglePause(): void {
+  if (online && !online.room.isHost) return sound.play('denied');
+  view.paused = !view.paused;
+  online?.room.setPaused(view.paused);
+}
+
+const lobby = new Lobby(
+  document.getElementById('lobby')!,
+  {
+    local: (lvl) => {
+      lobby.hide();
+      heroSelect.show(lvl, (id) => isHeroUnlocked(HEROES[id], progress), 'party');
+    },
+    create: (lvl) => void enterRoom(lvl, (mod) => mod.Room.create(lvl.id, memberId())),
+    join: (lvl, text) => {
+      const code = text.toUpperCase().replace(/[^0-9A-Z]/g, '');
+      if (code.length !== 5) return lobby.choose(lvl, t('Enter the 5-character room code.'), rejoinCode());
+      void enterRoom(lvl, (mod) => mod.Room.join(mod.normalizeCode(code), memberId()));
+    },
+    pickHero: (hero) => void online?.room.pickHero(hero).catch(() => {}),
+    start: () => {
+      if (online?.state) void online.room.start(online.state);
+    },
+    back: () => {
+      if (online) void leaveOnline();
+      lobby.hide();
+      menu.show(progress, false);
+    },
+  },
+  memberId,
+);
+
 // Debug handle for the browser console in dev builds only, e.g. `__td.game.gold = 9999`, `__td.sound`.
-if (import.meta.env.DEV) Object.assign(window, { __td: { get game() { return game; }, sound } });
+if (import.meta.env.DEV) Object.assign(window, { __td: { get game() { return game; }, get session() { return online?.session ?? null; }, sound } });
 
 let last = performance.now();
 let acc = 0;
 function frame(now: number): void {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
-  if (!view.paused && !menu.open && !heroSelect.open) {
+  const session = online?.session;
+  if (online && session) {
+    // Online: the lockstep session runs the game (it doesn't stop for menus: others keep playing).
+    if (online.room.isHost) {
+      session.speed = view.speed;
+      session.paused = view.paused;
+    }
+    const advanced = session.frame(dt);
+    online.waiting = advanced ? 0 : online.waiting + dt;
+    if (session.game !== game) {
+      // Resynced from the host's snapshot: a new game object.
+      game = session.game;
+      view.selected = null;
+    }
+    setNetStatus(
+      game.over ? '' : view.paused && !online.room.isHost ? t('Paused by the host') : online.waiting > 1.5 ? t('Waiting for the host…') : '',
+    );
+  } else if (!view.paused && !menu.open && !heroSelect.open && !lobby.open) {
     acc += dt * view.speed;
     while (acc >= STEP) {
       game.update(STEP);
@@ -546,7 +769,7 @@ function frame(now: number): void {
   if (view.buildChoice && game.isLocked(view.buildChoice)) view.buildChoice = null;
   if (game.over && !endRecorded) {
     endRecorded = true;
-    clearRun(run.slot);
+    if (!online) clearRun(run.slot);
     if (run.daily) hud.setDailyBest(recordDaily(run.daily.date, dailyScore(game)));
     else {
       if (game.phase === 'won') progress = markCleared(progress, level.id);
@@ -569,7 +792,7 @@ function frame(now: number): void {
   renderer.draw(game, view);
   hud.update(game, view);
   heroBar.update(game, view.aiming, view.heroSelected, view.player);
-  partyBar.update(game, view.player);
+  partyBar.update(game, view.player, online?.present);
   requestAnimationFrame(frame);
 }
 menu.show(progress, false);

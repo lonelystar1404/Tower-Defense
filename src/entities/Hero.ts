@@ -1,3 +1,4 @@
+import { dist } from '../systems/dmath';
 import { HERO_LEVELS, MAX_HERO_LEVEL, type HeroAbilityDef, type HeroDef } from '../data/hero';
 
 /** A hero on the map: walks where it's told, attacks on its own, levels up from nearby kills. */
@@ -37,7 +38,7 @@ export class Hero {
   }
 
   get moving(): boolean {
-    return Math.hypot(this.targetX - this.x, this.targetY - this.y) > 0.02;
+    return dist(this.targetX - this.x, this.targetY - this.y) > 0.02;
   }
 
   /** Multiplier on attack and ability damage from level (and the party bonus). */

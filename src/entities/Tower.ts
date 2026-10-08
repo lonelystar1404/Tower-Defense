@@ -22,6 +22,9 @@ export class Tower {
   cooldown = 0;
   /** Barrel angle in radians (0 = pointing right). */
   angle = -Math.PI / 2;
+  /** Unit vector the barrel points along (rules use this; `angle` is for drawing). Starts pointing up. */
+  aimX = 0;
+  aimY = -1;
   /** 1 right after firing, decays to 0; drives the barrel kick animation. */
   recoil = 0;
   /** Overclocked by a hero (Echo): recharges `boostMult`× as fast while `boostTime` > 0. */

@@ -1,3 +1,4 @@
+import { dist } from './dmath';
 export interface Vec {
   x: number;
   y: number;
@@ -20,7 +21,7 @@ export class Path {
     for (let i = 1; i < this.points.length; i++) {
       const a = this.points[i - 1];
       const b = this.points[i];
-      this.cumulative.push(this.cumulative[i - 1] + Math.hypot(b.x - a.x, b.y - a.y));
+      this.cumulative.push(this.cumulative[i - 1] + dist(b.x - a.x, b.y - a.y));
     }
     this.length = this.cumulative[this.cumulative.length - 1];
   }

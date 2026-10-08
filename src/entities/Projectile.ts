@@ -1,3 +1,4 @@
+import { dist } from '../systems/dmath';
 import type { Enemy } from './Enemy';
 import type { Tower } from './Tower';
 
@@ -30,8 +31,8 @@ export class Projectile {
     /** Sideways offset of the muzzle in tiles (multi-barrel weapons). */
     muzzleSide = 0,
   ) {
-    this.dirX = Math.cos(source.angle);
-    this.dirY = Math.sin(source.angle);
+    this.dirX = source.aimX;
+    this.dirY = source.aimY;
     this.x = this.startX = source.x + this.dirX * MUZZLE_OFFSET - this.dirY * muzzleSide;
     this.y = this.startY = source.y + this.dirY * MUZZLE_OFFSET + this.dirX * muzzleSide;
     this.tx = landing?.x ?? target.x;
@@ -47,8 +48,8 @@ export class Projectile {
 
   /** 0 at launch, 1 on arrival. Used to draw the mortar arc. */
   get progress(): number {
-    const total = Math.hypot(this.tx - this.startX, this.ty - this.startY);
+    const total = dist(this.tx - this.startX, this.ty - this.startY);
     if (total < 1e-6) return 1;
-    return 1 - Math.hypot(this.tx - this.x, this.ty - this.y) / total;
+    return 1 - dist(this.tx - this.x, this.ty - this.y) / total;
   }
 }
