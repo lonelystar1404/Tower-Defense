@@ -1,7 +1,8 @@
 import { ELEMENTS } from '../data/elements';
-import { ABILITY_KEYS, MAX_HERO_LEVEL, type HeroDef } from '../data/hero';
+import { ABILITY_KEYS, MAX_HERO_LEVEL, type HeroAbilityDef, type HeroDef } from '../data/hero';
 import type { Game } from '../game/Game';
 import { getLang, t } from '../i18n';
+import { tipAttrs } from './tooltip';
 
 /** Line-art icons for every hero ability (24×24, drawn with currentColor), by ability id. */
 export const ABILITY_ICONS: Record<string, string> = {
@@ -54,6 +55,17 @@ export const ABILITY_ICONS: Record<string, string> = {
   'zeynep-flash': '<circle cx="12" cy="12" r="4"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4M4 4l3 3M17 17l3 3M4 20l3-3M17 7l3-3"/>',
   'zeynep-incendiary': '<path d="M3 10h11l3 2-3 2H3z"/><path d="M19 8c1 1 2 2 2 4s-1 3-2 4" stroke-dasharray="2 1.5"/><path d="M6 10v4M9 10v4"/>',
   'zeynep-sunfall': '<path d="M9 2h6l-1 12h-4z" fill="currentColor" fill-opacity=".2"/><path d="M4 22c2-4 5-6 8-6s6 2 8 6"/><path d="M12 14v3"/>',
+  // Passives (shown as an always-on ability tile)
+  'vex-passive': '<circle cx="12" cy="13" r="6"/><path d="M12 7v3M12 16v3M6 13h3M15 13h3"/><path d="M8 3.5a6 6 0 0 1 8 0M10 5.5a3 3 0 0 1 4 0"/>',
+  'mateo-passive': '<rect x="7" y="7" width="10" height="9" rx="2"/><path d="M7 10.5h10M10 7v3.5M13.5 7v3.5"/><path d="M3 21l3-2.5M21 21l-3-2.5M12 22v-3"/>',
+  'leila-passive': '<circle cx="12" cy="12" r="8"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/>',
+  'arjun-passive': '<path d="M12 3l1.8 4.5L18 6l-1.5 4.5L21 12l-4.5 1.5L18 18l-4.2-1.5L12 21l-1.8-4.5L6 18l1.5-4.5L3 12l4.5-1.5L6 6l4.2 1.5z"/>',
+  'echo-passive': '<path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3"/><path d="M18 3v4h-4M6 21v-4h4"/><path d="M10 12h4M12 10v4"/>',
+  'kaito-passive': '<path d="M4 20L18 6"/><path d="M15 3l6 6"/><path d="M6 14l4 4"/><circle cx="17" cy="17" r="3" stroke-dasharray="2 1.5"/>',
+  'nalani-passive': '<circle cx="12" cy="12" r="9" stroke-dasharray="3 2"/><path d="M6 13c2-2 4 2 6 0s4 2 6 0"/>',
+  'ines-passive': '<path d="M14 4a4 4 0 0 0-5 5L3 15l3 3 6-6a4 4 0 0 0 5-5l-2 2-2-1-1-2z"/><path d="M17 15v6M14 18h6"/>',
+  'rua-passive': '<path d="M5 19C5 10 11 4 20 4c0 9-6 15-15 15z"/><path d="M5 19l9-9"/>',
+  'zeynep-passive': '<circle cx="12" cy="12" r="8"/><path d="M14.5 9.5c-.5-1-1.5-1.5-2.5-1.5-1.5 0-2.5.8-2.5 2s1 1.7 2.5 2 2.5.8 2.5 2-1 2-2.5 2c-1 0-2-.5-2.5-1.5M12 6.5v1.5M12 16v1.5"/>',
   'echo-swarm': '<rect x="3" y="3" width="6" height="4" rx="1"/><rect x="15" y="3" width="6" height="4" rx="1"/><rect x="3" y="17" width="6" height="4" rx="1"/><rect x="15" y="17" width="6" height="4" rx="1"/><circle cx="12" cy="12" r="2.5"/>',
 };
 
@@ -86,20 +98,33 @@ export class HeroBar {
         <span class="hero-level"></span>
         <span class="hero-xp"><span class="hero-xp-fill"></span></span>
         <span class="hero-xp-text"></span>
-        ${def.passive ? `<span class="hero-passive-chip" title="${t(def.passive.description)}">✦ ${t(def.passive.name)}</span>` : ''}
       </button>
       <div class="hero-abilities">
+        ${
+          def.passive
+            ? `<div class="ability passive" ${tipAttrs(t(def.passive.name), `✦ ${t('Passive')} · ${t('Always on')}`, t(def.passive.description), def.color)}>
+            <span class="ability-clock"><svg class="ability-icon" viewBox="0 0 24 24" aria-hidden="true">${ABILITY_ICONS[`${def.id}-passive`] ?? ''}</svg></span>
+            <span class="ability-text">
+              <span class="ability-key">✦</span>
+              <span class="ability-name">${t(def.passive.name)}</span>
+              <span class="ability-state">${t('Always on')}</span>
+            </span>
+          </div>`
+            : ''
+        }
         ${def.abilities
           .map(
             (a, slot) => `
-          <button class="ability" data-slot="${slot}" title="${t(a.name)} [${ABILITY_KEYS[slot]}]: ${t(a.description)}">
-            <svg class="ability-icon" viewBox="0 0 24 24" aria-hidden="true">${ABILITY_ICONS[a.id] ?? ''}</svg>
+          <button class="ability" data-slot="${slot}" ${tipAttrs(t(a.name), abilityMeta(a, slot), t(a.description), def.color)}>
+            <span class="ability-clock">
+              <svg class="ability-icon" viewBox="0 0 24 24" aria-hidden="true">${ABILITY_ICONS[a.id] ?? ''}</svg>
+              <span class="clock-hand"></span>
+            </span>
             <span class="ability-text">
               <span class="ability-key">${ABILITY_KEYS[slot]}</span>
               <span class="ability-name">${t(a.name)}</span>
               <span class="ability-state"></span>
             </span>
-            <span class="ability-active"></span>
           </button>`,
           )
           .join('')}
@@ -135,12 +160,23 @@ export class HeroBar {
       b.classList.toggle('cooling', unlocked && cd > 0);
       b.classList.toggle('ready', unlocked && cd <= 0);
       b.classList.toggle('aiming', aiming === slot);
-      b.style.setProperty('--cd', unlocked && cd > 0 ? String(cd / full) : '0');
       // While the cast effect lasts (zones, delays, stuns, buffs, drones), show its countdown.
       const effect = hero.effects[slot];
       const showEffect = effect > 0 && hero.effectLengths[slot] > 0.5;
       b.classList.toggle('active', showEffect);
-      b.style.setProperty('--active', showEffect ? String(effect / hero.effectLengths[slot]) : '0');
+      // Clock face: the hand sweeps clockwise from 12 o'clock through the effect (if one is
+      // running), else through the recharge. The last second flashes.
+      const sweep = showEffect ? 1 - effect / hero.effectLengths[slot] : unlocked && cd > 0 ? 1 - cd / full : 0;
+      b.style.setProperty('--sweep', sweep.toFixed(4));
+      b.classList.toggle('ending', (showEffect && effect <= 1) || (!showEffect && unlocked && cd > 0 && cd <= 1));
+      // A short pop when an ability comes off cooldown.
+      const wasCooling = b.dataset.cooling === '1';
+      b.dataset.cooling = unlocked && cd > 0 ? '1' : '0';
+      if (wasCooling && cd <= 0) {
+        b.classList.remove('just-ready');
+        void b.offsetWidth;
+        b.classList.add('just-ready');
+      }
       const label = a.effect.kind === 'strike' ? t('Impact') : t('Active');
       const state = !unlocked
         ? `🔒 ${t('Lv')} ${a.unlockLevel}`
@@ -153,4 +189,9 @@ export class HeroBar {
       if (el.textContent !== state) el.textContent = state;
     });
   }
+}
+
+/** "Z · Lv 3 · cooldown 18s": the muted line in an ability's tooltip. */
+export function abilityMeta(a: HeroAbilityDef, slot: number): string {
+  return `${ABILITY_KEYS[slot]} · ${t('Unlocks at Lv {n}', { n: a.unlockLevel })} · ${t('cooldown {n}s', { n: a.cooldown })}`;
 }

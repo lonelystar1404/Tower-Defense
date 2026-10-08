@@ -38,9 +38,12 @@ describe('Maps', () => {
     expect(obstacleTiles(LEVELS[6].obstacles).length).toBeGreaterThan(15);
   });
 
-  it('have a hero from Zero Point (map 5) on', () => {
-    const zero = LEVELS.findIndex((l) => l.id === 'zero-point');
-    LEVELS.forEach((level, i) => expect(level.heroStart !== undefined, level.id).toBe(i >= zero));
+  it('have a hero from Chrome Canyon (map 3) on: random on maps 3–5, chosen after', () => {
+    const first = LEVELS.findIndex((l) => l.id === 'chrome-canyon');
+    LEVELS.forEach((level, i) => {
+      expect(level.heroStart !== undefined, level.id).toBe(i >= first);
+      if (level.heroStart) expect(level.heroMode ?? 'choose', level.id).toBe(i <= first + 2 ? 'random' : 'choose');
+    });
   });
 
   it('only use known enemies', () => {

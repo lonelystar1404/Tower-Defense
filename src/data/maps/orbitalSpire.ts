@@ -3,7 +3,7 @@ import type { LevelDef } from '../levels';
 // Generated with a per-map HP growth curve (×1.049 per wave) and then checked with the balance bot
 // in tests/game.test.ts. Edit freely; re-run `npm test` after changing numbers.
 
-/** Map 4: a long spiral into the center, 40 waves. Introduces Phasers and Carriers. */
+/** Map 4: a long spiral into the center, 40 waves, with a random hero. Introduces Phasers and Carriers. */
 export const ORBITAL_SPIRE: LevelDef = {
   id: 'orbital-spire',
   name: 'Orbital Spire',
@@ -14,7 +14,10 @@ export const ORBITAL_SPIRE: LevelDef = {
   startGold: 180,
   lives: 25,
   /** All enemy HP on this map (see LevelDef.hpScale), tuned with the balance bot under 70% lockdown. */
-  hpScale: 1.4,
+  hpScale: 1.45,
+  // Inside the spiral, between its two inner rows.
+  heroStart: [10, 5],
+  heroMode: 'random',
   waves: [
     // 1. basics
     {

@@ -103,6 +103,8 @@ export interface Strike {
   radius: number;
   damage: number;
   delay: number;
+  /** The full delay, for the countdown clock. */
+  maxDelay: number;
 }
 
 /** A temporary turret placed by a hero (Echo's drones). */
@@ -424,7 +426,10 @@ export class Game {
   /** Heal, blink, launch, stealth reveal, disrupt, shift, burrow, and fortify (see AbilityDef). */
   private updateAbilities(dt: number): void {
     // Warden armor is recomputed from scratch every tick.
-    for (const e of this.enemies) e.bonusArmor = 0;
+    for (const e of this.enemies) {
+      e.bonusArmor = 0;
+      e.auraAmp = 0;
+    }
     for (const e of this.enemies) {
       if (e.def.phases && e.alive) this.updateBoss(e);
       const ability = e.def.ability;
@@ -632,7 +637,7 @@ export class Game {
         continue;
       }
       // Overclocked towers (Echo) recharge faster.
-      const boost = t.boostTime > 0 ? t.boostMult : 1;
+      const boost = (t.boostTime > 0 ? t.boostMult : 1) * this.towerRateMult(t);
       t.boostTime = Math.max(0, t.boostTime - dt);
       t.cooldown = Math.max(0, t.cooldown - dt * boost);
       t.recoil = Math.max(0, t.recoil - dt * 5);
@@ -762,6 +767,13 @@ export class Game {
     return mult;
   }
 
+  /** Auto-Loader (Echo): towers near the hero recharge faster. */
+  towerRateMult(tower: Tower): number {
+    const hero = this.hero;
+    const p = hero?.def.passive?.effect;
+    return hero && p?.kind === 'tower-rate-aura' && (tower.x - hero.x) ** 2 + (tower.y - hero.y) ** 2 <= p.radius ** 2 ? 1 + p.rate : 1;
+  }
+
   /** Feedback and follow-ups for an element combo (Steam splash, Wildfire spread). */
   private combo(id: ComboId, enemy: Enemy, steamBurst: number, source: DamageSource): void {
     const def = COMBOS[id];
@@ -881,7 +893,7 @@ export class Game {
         this.sound(eff.slow ? 'cryo' : 'firewall');
         break;
       case 'strike':
-        this.strikes.push({ x, y, radius: eff.radius, damage: eff.damage * m, delay: eff.delay });
+        this.strikes.push({ x, y, radius: eff.radius, damage: eff.damage * m, delay: eff.delay, maxDelay: eff.delay });
         this.sound('orbital-call');
         break;
       case 'dash':
@@ -1042,6 +1054,10 @@ export class Game {
         e.status.chillTime = Math.max(e.status.chillTime, 0.15);
       }
     }
+    // Spotter Uplink: enemies near the hero take more damage from everything (until next tick).
+    if (passive?.kind === 'vulnerable-aura') {
+      for (const e of this.heroTargetsWithin(hero.x, hero.y, passive.radius)) e.auraAmp = passive.amp;
+    }
     const buffed = hero.buffTime > 0;
 
     if (hero.moving) {
@@ -1064,9 +1080,17 @@ export class Game {
     hero.attackCooldown = 1 / (atk.fireRate * (buffed ? hero.buffAttackSpeed : 1));
     const damage = atk.damage * hero.damageMult * (buffed ? hero.buffDamage : 1);
     const color = hero.def.color;
+    // Aftershock: every n-th attack also stuns what it hits.
+    hero.attacks++;
+    const stun = passive?.kind === 'every-nth-stun' && hero.attacks % passive.every === 0 ? passive.stun : 0;
+    const strike = (e: Enemy, dmg: number) => {
+      this.heroDamage(e, dmg);
+      if (stun && e.alive) e.status.stunTime = Math.max(e.status.stunTime, stun);
+    };
+    if (stun) this.effects.push({ kind: 'shake', x: 0, y: 0, ttl: 0.12, maxTtl: 0.12, color: '' });
     if (atk.cleave) {
       // Melee: hits the target and everything right around it.
-      for (const e of this.heroTargetsWithin(target.x, target.y, atk.cleave)) this.heroDamage(e, e === target ? damage : damage * CLEAVE_SHARE);
+      for (const e of this.heroTargetsWithin(target.x, target.y, atk.cleave)) strike(e, e === target ? damage : damage * CLEAVE_SHARE);
       this.effects.push({ kind: 'pulse', x: target.x, y: target.y, radius: atk.cleave * 0.7, ttl: 0.2, maxTtl: 0.2, color });
       this.sound('hero-punch');
     } else if (atk.chain) {
@@ -1076,14 +1100,14 @@ export class Game {
         kind: 'beam', x: hero.x, y: hero.y, points: [{ x: hero.x, y: hero.y }, ...chain.map((e) => ({ x: e.x, y: e.y }))],
         element: 'metal', ttl: 0.15, maxTtl: 0.15, color,
       });
-      chain.forEach((e, i) => this.heroDamage(e, damage * 0.75 ** i));
+      chain.forEach((e, i) => strike(e, damage * 0.75 ** i));
       this.sound('hero-zap');
     } else {
       this.effects.push({
         kind: 'beam', x: hero.x, y: hero.y, points: [{ x: hero.x, y: hero.y }, { x: target.x, y: target.y }],
         element: 'water', ttl: 0.12, maxTtl: 0.12, color,
       });
-      this.heroDamage(target, damage);
+      strike(target, damage);
       this.sound('hero-shot');
     }
   }
@@ -1139,6 +1163,9 @@ export class Game {
     }
     const atk = this.hero?.def.attack;
     const crit = this.rng() < (atk?.critChance ?? 0);
+    // Headshot: crits hit harder than the usual 2× (the formula doubles; this scales the base).
+    const p = this.hero?.def.passive?.effect;
+    if (crit && p?.kind === 'crit-mult') base *= p.mult / 2;
     const dmg = computeDamage({
       base, elementMult: this.heroElementMult(enemy), crit, armor: enemy.armor,
       armorBreak: enemy.status.armorBreak, armorPierce: atk?.armorPierce ?? 0,
@@ -1216,7 +1243,17 @@ export class Game {
     }
   }
 
+  /** Combustion (Arjun): set while an explosion is resolving, so explosion kills don't chain. */
+  private bursting = false;
+
   private reward(enemy: Enemy, source: DamageSource): void {
+    const burst = this.hero?.def.passive?.effect;
+    if (source.kind === 'hero' && burst?.kind === 'death-burst' && !this.bursting) {
+      this.bursting = true;
+      for (const e of this.heroTargetsWithin(enemy.x, enemy.y, burst.radius)) if (e !== enemy) this.heroDamage(e, burst.damage * this.hero!.damageMult);
+      this.effects.push({ kind: 'blast', x: enemy.x, y: enemy.y, radius: burst.radius, element: 'fire', ttl: 0.3, maxTtl: 0.3, color: '' });
+      this.bursting = false;
+    }
     this.track('kills', source);
     this.sound('kill');
     this.heroXp(enemy);

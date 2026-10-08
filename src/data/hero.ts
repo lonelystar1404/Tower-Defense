@@ -52,13 +52,24 @@ export type HeroEffect =
  * - tower-aura: towers within `radius` tiles of the hero deal `damage` more (0.2 = +20%).
  * - element-hits: the hero's hits apply its element's status effect at `power` (like a level-1 tower = 1).
  * - bounty: enemies dying within `radius` tiles of the hero pay `gold` more (0.3 = +30%).
+ * - vulnerable-aura: enemies within `radius` tiles take `amp` more damage from everything.
+ * - every-nth-stun: every `every`-th attack stuns everything it hits for `stun` s.
+ * - crit-mult: the hero's critical hits deal `mult`× damage instead of 2×.
+ * - death-burst: enemies the hero kills explode for `damage` to enemies within `radius` tiles
+ *   (explosion kills don't explode again).
+ * - tower-rate-aura: towers within `radius` tiles fire `rate` faster (0.15 = +15%).
  */
 export type HeroPassiveEffect =
   | { kind: 'execute'; threshold: number }
   | { kind: 'slow-aura'; radius: number; slow: number }
   | { kind: 'tower-aura'; radius: number; damage: number }
   | { kind: 'element-hits'; power: number }
-  | { kind: 'bounty'; radius: number; gold: number };
+  | { kind: 'bounty'; radius: number; gold: number }
+  | { kind: 'vulnerable-aura'; radius: number; amp: number }
+  | { kind: 'every-nth-stun'; every: number; stun: number }
+  | { kind: 'crit-mult'; mult: number }
+  | { kind: 'death-burst'; radius: number; damage: number }
+  | { kind: 'tower-rate-aura'; radius: number; rate: number };
 
 export interface HeroPassive {
   name: string;
@@ -116,7 +127,7 @@ export interface HeroDef {
   attack: HeroAttackDef;
   /** Four abilities, unlocked at levels 1, 3, 5, 8, used with Z X C V. */
   abilities: readonly [HeroAbilityDef, HeroAbilityDef, HeroAbilityDef, HeroAbilityDef];
-  /** Always-on effect (the second roster has one each). */
+  /** Always-on effect (every hero has one). */
   passive?: HeroPassive;
   /** Map id that must be cleared before this hero can be picked (always available if unset). */
   unlockedBy?: string;
@@ -145,6 +156,10 @@ export const HEROES: Record<HeroId, HeroDef> = {
     bio: 'A drone engineer who rewired a decommissioned defense satellite to answer only to her. Calm under fire, always three moves ahead.',
     color: '#ffe600', element: 'water', speed: 3,
     attack: { damage: 10, fireRate: 1.6, range: 2.6, armorPierce: 0.3, critChance: 0.1 },
+    passive: {
+      name: 'Spotter Uplink', effect: { kind: 'vulnerable-aura', radius: 2.5, amp: 0.12 },
+      description: 'Her drones paint targets: enemies within 2.5 tiles of her take 12% more damage from everything.',
+    },
     abilities: [
       {
         id: 'vex-pulse', name: 'Pulse Blast', unlockLevel: 1, cooldown: 8, target: 'point', castRange: 4.5, aimRadius: 1.4,
@@ -174,6 +189,10 @@ export const HEROES: Record<HeroId, HeroDef> = {
     bio: 'A former demolition worker who kept the hydraulic arms after the job tried to replace him. Loud, loyal, and happiest in the middle of the crowd.',
     color: '#ff8a3d', element: 'earth', speed: 3.4,
     attack: { damage: 13, fireRate: 0.85, range: 1.1, armorPierce: 0.5, critChance: 0.1, cleave: 0.6 },
+    passive: {
+      name: 'Aftershock', effect: { kind: 'every-nth-stun', every: 3, stun: 0.6 },
+      description: 'Every third punch stuns everything it hits for 0.6s.',
+    },
     abilities: [
       {
         id: 'mateo-slam', name: 'Ground Slam', unlockLevel: 1, cooldown: 11, target: 'self', castRange: 0, aimRadius: 1.6,
@@ -203,6 +222,10 @@ export const HEROES: Record<HeroId, HeroDef> = {
     bio: 'A competition marksman whose implant reads wind, heat, and heartbeat. She counts every shot and rarely needs a second one.',
     color: '#ff6fae', element: 'metal', speed: 2.8,
     attack: { damage: 22, fireRate: 1, range: 4.5, armorPierce: 0.6, critChance: 0.2 },
+    passive: {
+      name: 'Headshot', effect: { kind: 'crit-mult', mult: 3 },
+      description: 'Her critical hits deal 3× damage instead of 2×.',
+    },
     abilities: [
       {
         id: 'leila-pierce', name: 'Piercing Round', unlockLevel: 1, cooldown: 7, target: 'point', castRange: 8, aimRadius: 0.5,
@@ -232,6 +255,10 @@ export const HEROES: Record<HeroId, HeroDef> = {
     bio: 'A physics teacher who uploaded himself to keep his research alive. He now bends the city network like a lecture hall full of equations.',
     color: '#b388ff', element: 'fire', speed: 3,
     attack: { damage: 11, fireRate: 1.2, range: 3, armorPierce: 0.2, critChance: 0.05, chain: 2 },
+    passive: {
+      name: 'Combustion', effect: { kind: 'death-burst', radius: 1, damage: 12 },
+      description: 'Enemies he kills explode, dealing 12 damage to enemies within 1 tile.',
+    },
     abilities: [
       {
         id: 'arjun-firewall', name: 'Firewall', unlockLevel: 1, cooldown: 10, target: 'point', castRange: 5, aimRadius: 1.6,
@@ -261,6 +288,10 @@ export const HEROES: Record<HeroId, HeroDef> = {
     bio: 'A maintenance android that taught itself to build. Echo names every drone it deploys and remembers each one that came back.',
     color: '#5dffb1', element: 'wood', speed: 3.2,
     attack: { damage: 9, fireRate: 2.2, range: 2.8, armorPierce: 0.2, critChance: 0.05 },
+    passive: {
+      name: 'Auto-Loader', effect: { kind: 'tower-rate-aura', radius: 2.5, rate: 0.15 },
+      description: 'Towers within 2.5 tiles of Echo fire 15% faster.',
+    },
     abilities: [
       {
         id: 'echo-drone', name: 'Deploy Drone', unlockLevel: 1, cooldown: 12, target: 'point', castRange: 4, aimRadius: 2.5,

@@ -17,6 +17,8 @@ export class Hero {
   readonly effects = [0, 0, 0, 0];
   readonly effectLengths = [0, 0, 0, 0];
   attackCooldown = 0;
+  /** Attacks made so far (Aftershock counts every n-th). */
+  attacks = 0;
   /** Facing (radians), for drawing. */
   angle = 0;
   /** True while a Jammer is close enough to stop its cooldowns. */

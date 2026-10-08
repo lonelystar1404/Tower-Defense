@@ -86,6 +86,11 @@ export interface LevelDef {
   hpScale?: number;
   /** Tile where the hero starts; maps without it have no hero. */
   heroStart?: [number, number];
+  /**
+   * How the hero is picked on a hero map: 'random' assigns one of the player's unlocked heroes
+   * (no hero select; Reboot keeps it, a new run re-rolls); 'choose' (default) shows hero select.
+   */
+  heroMode?: 'random' | 'choose';
   /** Playable from the start, without clearing the map before it. */
   unlocked?: boolean;
   waves: WaveDef[];

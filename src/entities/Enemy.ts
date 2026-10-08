@@ -39,6 +39,8 @@ export class Enemy implements Targetable {
   /** Marked (Leila): takes `markAmp` more damage from everything while `markTime` > 0. */
   markTime = 0;
   markAmp = 0;
+  /** Extra damage taken from standing near Vex (Spotter Uplink); recomputed every tick. */
+  auraAmp = 0;
   /** This enemy's element (from its wave group, else its type), if any. Prisms change it. */
   element: ElementId | undefined;
   /** Extra armor from a nearby Warden (recomputed every tick). */
@@ -74,6 +76,7 @@ export class Enemy implements Targetable {
   takeDamage(amount: number): number {
     if (this.burrowed) return 0;
     if (this.markTime > 0) amount *= 1 + this.markAmp;
+    amount *= 1 + this.auraAmp;
     const before = this.shield + Math.max(0, this.hp);
     const absorbed = Math.min(this.shield, amount);
     this.shield -= absorbed;

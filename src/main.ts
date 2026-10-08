@@ -9,10 +9,11 @@ import { Renderer, type ViewState } from './render/Renderer';
 import { TARGET_PRIORITIES } from './systems/targeting';
 import { ELEMENT_KEYS, Hud } from './ui/Hud';
 import { HeroBar } from './ui/HeroBar';
-import { ABILITY_KEYS, HEROES, type HeroId } from './data/hero';
+import { ABILITY_KEYS, HERO_IDS, HEROES, type HeroId } from './data/hero';
 import { HeroSelect, lastHero } from './ui/HeroSelect';
 import { Sound } from './audio/Sound';
 import { MapMenu } from './ui/MapMenu';
+import { initTooltips } from './ui/tooltip';
 import { isHeroUnlocked, loadProgress, markCleared } from './ui/progress';
 import { dailyChallenge, dailyScore, type DailyChallenge } from './game/daily';
 import { clearRun, DAILY_SLOT, loadRun, recordDaily, saveRun, type SaveSlot } from './ui/saves';
@@ -136,10 +137,17 @@ function useAbility(slot: number): void {
   view.selected = null;
 }
 
-/** Picking a map for a new run: hero maps go through hero select first. */
+/**
+ * Picking a map for a new run: random-hero maps roll one of the unlocked heroes; other hero
+ * maps go through hero select first.
+ */
 function pickLevel(next: LevelDef): void {
   menu.hide();
-  if (next.heroStart) heroSelect.show(next, (id) => isHeroUnlocked(HEROES[id], progress));
+  if (next.heroStart && next.heroMode === 'random') {
+    const pool = HERO_IDS.filter((id) => isHeroUnlocked(HEROES[id], progress));
+    heroId = pool[Math.floor(Math.random() * pool.length)] ?? 'vex';
+    startLevel(next);
+  } else if (next.heroStart) heroSelect.show(next, (id) => isHeroUnlocked(HEROES[id], progress));
   else startLevel(next);
 }
 
@@ -457,3 +465,4 @@ langSelect.addEventListener('change', () => {
   heroSelect.refresh();
 });
 applyStaticText();
+initTooltips();

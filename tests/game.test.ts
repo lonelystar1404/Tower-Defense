@@ -600,13 +600,13 @@ describe('Balance: Neon District', { timeout: 60_000 }, () => {
     }
   });
 
-  it('every hero map is beatable with every hero', { timeout: 180_000 }, () => {
-    // Zero Point on 2 seeds; the later hero maps (Blackout Sector, Core Nexus) on 1 to keep the suite quick.
+  it('every hero map is beatable with every hero', { timeout: 600_000 }, () => {
+    // One seed per hero and map to keep the suite quick (the random-hero maps can hand out any of them).
     const heroMaps = LEVELS.filter((l) => l.heroStart);
-    expect(heroMaps.map((l) => l.id)).toEqual(['zero-point', 'blackout-sector', 'core-nexus']);
-    for (const [i, map] of heroMaps.entries()) {
+    expect(heroMaps.map((l) => l.id)).toEqual(['chrome-canyon', 'orbital-spire', 'zero-point', 'blackout-sector', 'core-nexus']);
+    for (const map of heroMaps) {
       for (const hero of HERO_IDS) {
-        for (let seed = 1; seed <= (i === 0 ? 2 : 1); seed++) {
+        for (let seed = 1; seed <= 1; seed++) {
           const game = playBot(map, seed, MIXED_PLAN, Infinity, false, hero);
           expect(game.phase, `${map.id} ${hero} seed ${seed}: fell on wave ${game.wavesStarted}`).toBe('won');
         }
@@ -643,9 +643,9 @@ describe('Balance: Neon District', { timeout: 60_000 }, () => {
     }
   });
 
-  it('is an easy first map: 16 towers that upgrade win it', () => {
+  it('is an easy first map: 10 towers that upgrade win it', () => {
     for (let seed = 1; seed <= 3; seed++) {
-      const game = playBot(realLevel, seed, MIXED_PLAN, 16, true);
+      const game = playBot(realLevel, seed, MIXED_PLAN, 10, true);
       expect(game.phase, `seed ${seed}: fell on wave ${game.wavesStarted}`).toBe('won');
     }
   });

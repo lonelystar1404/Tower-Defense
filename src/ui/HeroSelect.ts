@@ -3,7 +3,8 @@ import { LEVELS } from '../data/levels';
 import { t } from '../i18n';
 import type { LevelDef } from '../data/levels';
 import { drawHeroSprite } from '../render/sprites';
-import { ABILITY_ICONS } from './HeroBar';
+import { ABILITY_ICONS, abilityMeta } from './HeroBar';
+import { tipAttrs } from './tooltip';
 import { heroProfile } from './InfoPanel';
 
 const KEY = 'td-hero';
@@ -86,7 +87,7 @@ export class HeroSelect {
       const abilities = def.abilities
         .map(
           (ab, slot) => `
-          <li title="${t(ab.description)}">
+          <li ${tipAttrs(t(ab.name), abilityMeta(ab, slot), t(ab.description), def.color)}>
             <svg viewBox="0 0 24 24" aria-hidden="true">${ABILITY_ICONS[ab.id] ?? ''}</svg>
             <span><b>${ABILITY_KEYS[slot]}</b> ${t(ab.name)}</span><span class="lv">${t('Lv')} ${ab.unlockLevel}</span>
           </li>`,
@@ -94,8 +95,12 @@ export class HeroSelect {
         .join('');
       const open = this.unlocked(id);
       const unlockMap = LEVELS.find((l) => l.id === def.unlockedBy);
+      // The passive is listed first, as an always-on ability.
       const passive = def.passive
-        ? `<div class="hero-passive" title="${t(def.passive.description)}">✦ ${t('Passive')} · <b>${t(def.passive.name)}</b>: ${t(def.passive.description)}</div>`
+        ? `<li class="passive" ${tipAttrs(t(def.passive.name), `✦ ${t('Passive')} · ${t('Always on')}`, t(def.passive.description), def.color)}>
+            <svg viewBox="0 0 24 24" aria-hidden="true">${ABILITY_ICONS[`${id}-passive`] ?? ''}</svg>
+            <span><b>✦</b> ${t(def.passive.name)}</span><span class="lv">${t('Passive')}</span>
+          </li>`
         : '';
       return `
         <button class="hero-card ${id === this.picked ? 'picked' : ''} ${open ? '' : 'locked'}" data-hero="${id}" style="--el-color:${def.color}" aria-pressed="${id === this.picked}" ${open ? '' : 'aria-disabled="true"'}>
@@ -103,8 +108,7 @@ export class HeroSelect {
           <canvas width="96" height="96" data-portrait="${id}"></canvas>
           ${heroProfile(def)}
           <div class="hero-attack">⚔ ${attack} · ${t('range {n}', { n: a.range })}</div>
-          ${passive}
-          <ul class="hero-abilities-list">${abilities}</ul>
+          <ul class="hero-abilities-list">${passive}${abilities}</ul>
         </button>`;
     }).join('');
     this.root.innerHTML = `

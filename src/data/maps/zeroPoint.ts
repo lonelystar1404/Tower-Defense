@@ -3,11 +3,11 @@ import type { LevelDef } from '../levels';
 // Generated with a per-map HP growth curve (×1.090 per wave) and then checked with the balance bot
 // in tests/game.test.ts. Edit freely; re-run `npm test` after changing numbers.
 
-/** Map 5: the hero map. Introduces Jammers (they stop hero cooldowns) and Mirrors (immune to the hero). */
+/** Map 5: random hero. Introduces Jammers (they stop hero cooldowns) and Mirrors (immune to the hero). */
 export const ZERO_POINT: LevelDef = {
   id: 'zero-point',
   name: 'Zero Point',
-  description: 'Command the hero Vex: move with right-click, abilities on Z X C V. New: Jammers and Mirrors.',
+  description: 'The last map with a random hero. New: Jammers stop your hero’s cooldowns, Mirrors are immune to heroes.',
   cols: 20,
   rows: 12,
   path: [[-1, 6], [3, 6], [3, 2], [8, 2], [8, 9], [12, 9], [12, 3], [16, 3], [16, 8], [18, 8]],
@@ -16,6 +16,7 @@ export const ZERO_POINT: LevelDef = {
   /** All enemy HP on this map (see LevelDef.hpScale), tuned with the balance bot under 70% lockdown. */
   hpScale: 1.15,
   heroStart: [10, 5],
+  heroMode: 'random',
   // Temporarily playable without clearing the earlier maps. Remove to restore the unlock order.
   unlocked: true,
   waves: [

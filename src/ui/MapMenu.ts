@@ -99,6 +99,7 @@ export class MapMenu {
           <div class="map-info">
             <div class="map-title"><span>${i + 1}. ${t(level.name)}</span><span class="map-waves">${t('{n} waves', { n: level.waves.length })}</span></div>
             <p>${t(level.description)}</p>
+            ${level.heroStart ? `<p class="map-hero">${level.heroMode === 'random' ? `🎲 ${t('Random hero')}` : `🦸 ${t('Choose your hero')}`}</p>` : ''}
             <ul class="map-roster">${roster}</ul>
             <div class="map-actions">${actions}${status}</div>
           </div>

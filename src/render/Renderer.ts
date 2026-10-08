@@ -221,13 +221,9 @@ export class Renderer {
       ctx.strokeStyle = z.color;
       ctx.lineWidth = 1.5;
       ctx.stroke();
-      // Remaining time: a draining arc on the rim and the seconds in the middle
+      // Remaining time: a clock on the rim (hand sweeping clockwise) and the seconds in the middle
       ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.arc(z.x * TILE, z.y * TILE, z.radius * TILE + 3, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * t);
-      ctx.strokeStyle = z.color;
-      ctx.lineWidth = 2.5;
-      ctx.stroke();
+      drawClock(ctx, z.x * TILE, z.y * TILE, z.radius * TILE + 3, t, z.ttl, z.color, game.time, { hand: 'line', width: 2.5 });
       const icon = z.slow ? '❄' : z.armorBreak ? '⬡' : '🔥';
       countdownLabel(ctx, z.x * TILE, z.y * TILE, `${icon} ${z.ttl.toFixed(1)}s`, z.color);
       ctx.restore();
@@ -258,6 +254,7 @@ export class Renderer {
       ctx.globalAlpha = 0.5;
       ctx.stroke();
       ctx.globalAlpha = 1;
+      drawClock(ctx, s.x * TILE, s.y * TILE, r + 4, Math.max(0, s.delay) / s.maxDelay, s.delay, '#ff5a36', game.time, { hand: 'line', width: 3, flashAt: 0.5 });
       // Above the target ring, or below it when that would leave the map
       const labelY = s.y * TILE - r - 10 >= 10 ? s.y * TILE - r - 10 : s.y * TILE + r + 12;
       countdownLabel(ctx, s.x * TILE, labelY, `${tr('IMPACT')} ${Math.max(0, s.delay).toFixed(1)}`, '#ff5a36');
@@ -327,15 +324,7 @@ export class Renderer {
       const timed = (k === 'blast' && ab.target === 'self' && ab.effect.stun) || k === 'buff' || k === 'freeze-all';
       if (!timed || hero.effects[slot] <= 0) continue;
       const rr = r * (2.1 + ring * 0.45);
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(x, y, rr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (hero.effects[slot] / hero.effectLengths[slot]));
-      ctx.strokeStyle = '#4dd2ff';
-      ctx.lineWidth = 2.5;
-      ctx.shadowColor = '#4dd2ff';
-      ctx.shadowBlur = 8;
-      ctx.stroke();
-      ctx.restore();
+      drawClock(ctx, x, y, rr, hero.effects[slot] / hero.effectLengths[slot], hero.effects[slot], '#4dd2ff', time, { hand: 'dot', width: 2.5, glow: true });
       countdownLabel(ctx, x, y + rr + 10 + ring * 12, `${tr(ab.name)} ${hero.effects[slot].toFixed(1)}s`, '#4dd2ff');
       ring++;
     }
@@ -389,11 +378,7 @@ export class Renderer {
       neonStroke(ctx, color, 1.5);
       ctx.restore();
       glowDot(ctx, x, y, 5, '#ffffff', color);
-      ctx.beginPath();
-      ctx.arc(x, y, 13, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (d.ttl / d.maxTtl));
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.stroke();
+      drawClock(ctx, x, y, 13, d.ttl / d.maxTtl, d.ttl, color, game.time, { hand: 'dot', width: 2 });
     }
     for (const e of game.enemies) {
       if (e.markTime <= 0) continue;
@@ -1619,5 +1604,72 @@ function countdownLabel(ctx: CanvasRenderingContext2D, x: number, y: number, tex
   ctx.strokeText(text, x, y);
   ctx.fillStyle = color;
   ctx.fillText(text, x, y);
+  ctx.restore();
+}
+
+/**
+ * A countdown drawn like a clock: a faint full ring with quarter ticks, the time left as an arc
+ * from the hand clockwise back to 12 o'clock, and the hand itself (a line from the center, or
+ * a dot on the rim) sweeping clockwise. In the last `flashAt` seconds it flashes white.
+ * `left` is the fraction of time remaining (1 → 0).
+ */
+function drawClock(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  left: number,
+  secondsLeft: number,
+  color: string,
+  time: number,
+  opts: { hand: 'line' | 'dot'; width: number; flashAt?: number; glow?: boolean },
+): void {
+  const frac = Math.min(1, Math.max(0, left));
+  const top = -Math.PI / 2;
+  const handAngle = top + (1 - frac) * Math.PI * 2;
+  const flashing = secondsLeft > 0 && secondsLeft <= (opts.flashAt ?? 1);
+  const on = flashing && Math.sin(time * 32) > 0;
+  const c = on ? '#ffffff' : color;
+  ctx.save();
+  // Track and quarter ticks
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.strokeStyle = hexAlpha(color, 0.18);
+  ctx.lineWidth = opts.width;
+  ctx.stroke();
+  ctx.strokeStyle = hexAlpha(color, 0.55);
+  ctx.lineWidth = 1.2;
+  for (let i = 0; i < 4; i++) {
+    const a = top + (i * Math.PI) / 2;
+    ctx.beginPath();
+    ctx.moveTo(x + Math.cos(a) * (r - 3), y + Math.sin(a) * (r - 3));
+    ctx.lineTo(x + Math.cos(a) * (r + 3), y + Math.sin(a) * (r + 3));
+    ctx.stroke();
+  }
+  // Time left: from the hand round to 12 o'clock
+  if (opts.glow || flashing) {
+    ctx.shadowColor = c;
+    ctx.shadowBlur = flashing ? 14 : 8;
+  }
+  ctx.beginPath();
+  ctx.arc(x, y, r, handAngle, top + Math.PI * 2);
+  ctx.strokeStyle = c;
+  ctx.lineWidth = opts.width + (on ? 1.5 : 0);
+  ctx.stroke();
+  // The hand
+  const hx = x + Math.cos(handAngle) * r;
+  const hy = y + Math.sin(handAngle) * r;
+  if (opts.hand === 'line') {
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(hx, hy);
+    ctx.strokeStyle = hexAlpha(on ? '#ffffff' : color, 0.75);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.arc(hx, hy, opts.width + 1.2, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
   ctx.restore();
 }

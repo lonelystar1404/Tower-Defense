@@ -405,3 +405,79 @@ describe('Second roster (passives)', () => {
     expect(gold('vex')).toBe(ENEMIES.brute.reward);
   });
 });
+
+describe('First roster passives', () => {
+  it('every hero has a passive with an icon', async () => {
+    const { ABILITY_ICONS } = await import('../src/ui/HeroBar');
+    for (const id of HERO_IDS) {
+      expect(HEROES[id].passive, id).toBeDefined();
+      expect(ABILITY_ICONS[`${id}-passive`], id).toBeDefined();
+    }
+  });
+
+  it('Spotter Uplink (Vex): enemies near her take 12% more damage, from anything', () => {
+    const g = game('vex', () => 1, 1);
+    const near = place(g, 'grunt', 6);
+    const far = place(g, 'grunt', 12);
+    freeze(near, far);
+    g.update(STEP);
+    expect(near.auraAmp).toBeCloseTo(0.12);
+    expect(far.auraAmp).toBe(0);
+    const before = near.hp;
+    near.takeDamage(100);
+    expect(before - near.hp).toBeCloseTo(112);
+  });
+
+  it('Aftershock (Brick): every third punch stuns what it hits', () => {
+    const g = game('mateo', () => 1, 1);
+    const e = place(g, 'brute', 6);
+    freeze(e);
+    e.status.stunTime = 0;
+    e.status.rootTime = 99; // hold it still without a stun
+    const stunnedAfter: number[] = [];
+    for (let i = 0; i < 60 * 4 && g.hero!.attacks < 3; i++) {
+      g.update(STEP);
+      if (e.status.stunTime > 0 && stunnedAfter.length === 0) stunnedAfter.push(g.hero!.attacks);
+    }
+    expect(stunnedAfter).toEqual([3]);
+  });
+
+  it('Headshot (Leila): crits deal 3× instead of 2×', () => {
+    const hit = (id: HeroId, rng: () => number) => {
+      const g = game(id, rng, 1);
+      const e = place(g, 'grunt', 6);
+      freeze(e);
+      const before = e.hp;
+      run(g, 0.05);
+      return before - e.hp;
+    };
+    // rng 0 crits; compare against the same hit without a crit.
+    const normal = hit('leila', () => 0.99);
+    const crit = hit('leila', () => 0);
+    expect(crit / normal).toBeGreaterThan(2.6);
+  });
+
+  it("Combustion (Arjun): his kills explode, but explosion kills don't chain", () => {
+    const g = game('arjun', () => 1, 1);
+    const a = place(g, 'grunt', 6, 1);
+    const b = place(g, 'grunt', 6.5, 1);
+    const c = place(g, 'grunt', 7.3, 1);
+    freeze(a, b, c);
+    a.hp = 1;
+    b.hp = 5;
+    c.hp = c.maxHp;
+    // Kill a directly with a hit
+    (g as unknown as { heroDamage(e: Enemy, d: number): void }).heroDamage(a, 50);
+    expect(a.alive).toBe(false);
+    expect(b.alive).toBe(false); // caught in a's explosion
+    expect(c.hp).toBe(c.maxHp); // b's death didn't explode again
+  });
+
+  it('Auto-Loader (Echo): towers near Echo fire 15% faster', () => {
+    const g = game('echo');
+    const near = g.build(5, 4, { weapon: 'cannon', element: 'metal' })!;
+    const far = g.build(12, 4, { weapon: 'cannon', element: 'metal' })!;
+    expect(g.towerRateMult(near)).toBeCloseTo(1.15);
+    expect(g.towerRateMult(far)).toBe(1);
+  });
+});

@@ -122,7 +122,15 @@ export class InfoPanel {
         <dt>${t('XP radius')}</dt><dd>${t('{n} tiles', { n: HERO_LEVELS.xpRadius })}</dd>
       </dl>
       ${this.matchups(game, def.element, true)}
-      ${def.passive ? `<div class="info-block hero-ability" style="--el-color:${def.color}"><div class="info-label">✦ ${t('Passive')} · ${t(def.passive.name)}</div><p>${t(def.passive.description)}</p></div>` : ''}
+      ${
+        def.passive
+          ? `<div class="info-block hero-ability" style="--el-color:${def.color}">
+          <div class="info-label"><svg viewBox="0 0 24 24" aria-hidden="true">${ABILITY_ICONS[`${def.id}-passive`] ?? ''}</svg>[✦] ${t(def.passive.name)}</div>
+          <p>${t(def.passive.description)}</p>
+          <p class="muted">${t('Passive')} · ${t('Always on')}</p>
+        </div>`
+          : ''
+      }
       ${abilities}
       <p class="info-hint">${t("Right-click the map to move. Can't be hurt. Mirrors are immune to heroes; Jammers nearby pause cooldowns.")}</p>`;
   }

@@ -3,18 +3,21 @@ import type { LevelDef } from '../levels';
 // Generated with a per-map HP growth curve (×1.062 per wave) and then checked with the balance bot
 // in tests/game.test.ts. Edit freely; re-run `npm test` after changing numbers.
 
-/** Map 3: enemies enter from the top. Introduces Splitters (and their Shards) and Ghosts. */
+/** Map 3: enemies enter from the top; the first map with a (random) hero. Introduces Splitters (and their Shards) and Ghosts. */
 export const CHROME_CANYON: LevelDef = {
   id: 'chrome-canyon',
   name: 'Chrome Canyon',
-  description: 'Enemies drop in from the top of the canyon. New: Splitters and Ghosts.',
+  description: 'Your first hero, picked at random: move with right-click, abilities on Z X C V. Enemies drop in from the top of the canyon. New: Splitters and Ghosts.',
   cols: 20,
   rows: 12,
   path: [[3, -1], [3, 9], [8, 9], [8, 2], [13, 2], [13, 9], [17, 9], [17, 4]],
   startGold: 170,
   lives: 20,
   /** All enemy HP on this map (see LevelDef.hpScale), tuned with the balance bot under 70% lockdown. */
-  hpScale: 1.2,
+  hpScale: 1.7,
+  // Inside the middle U, between the two long climbs.
+  heroStart: [10, 5],
+  heroMode: 'random',
   waves: [
     // 1. basics
     {

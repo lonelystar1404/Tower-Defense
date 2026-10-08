@@ -302,22 +302,39 @@ button.danger:hover { background: rgba(255, 56, 100, 0.15); box-shadow: 0 0 10px
 .hero-xp { grid-column: 1 / -1; height: 4px; background: rgba(255, 255, 255, 0.1); border-radius: 2px; overflow: hidden; margin-top: 3px; }
 .hero-xp-fill { display: block; height: 100%; background: var(--hero-color); box-shadow: 0 0 6px var(--hero-color); }
 .hero-xp-text { grid-column: 1 / -1; font-size: 10px; color: var(--muted); }
-.hero-passive-chip { grid-column: 1 / -1; font-size: 10px; color: var(--hero-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hero-abilities { display: flex; gap: 6px; }
 .ability {
   position: relative;
   min-width: 82px;
-  padding: 4px 8px 6px 6px;
+  padding: 4px 8px 4px 5px;
   display: flex;
   align-items: center;
   gap: 7px;
-  overflow: hidden;
   text-align: left;
 }
-.ability-icon {
-  width: 26px;
-  height: 26px;
+/* Clock face around the icon: a hand sweeps clockwise from 12 o'clock (--sweep 0 → 1) through
+   the recharge (hero color fills in behind it) or a running effect (cyan drains ahead of it). */
+.ability-clock {
+  position: relative;
+  width: 34px;
+  height: 34px;
   flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+}
+.ability-clock::before {
+  /* inner disc, so the sweep reads as a ring */
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--panel-2);
+}
+.ability-icon {
+  width: 22px;
+  height: 22px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.6;
@@ -327,38 +344,63 @@ button.danger:hover { background: rgba(255, 56, 100, 0.15); box-shadow: 0 0 10px
   position: relative;
   z-index: 1;
 }
+.clock-hand {
+  position: absolute;
+  left: calc(50% - 1px);
+  top: 1px;
+  width: 2px;
+  height: 16px;
+  border-radius: 1px;
+  background: #fff;
+  box-shadow: 0 0 4px #fff;
+  transform-origin: 50% 16px;
+  transform: rotate(calc(var(--sweep, 0) * 1turn));
+  z-index: 2;
+  display: none;
+}
+.ability.cooling .clock-hand,
+.ability.active .clock-hand { display: block; }
+.ability.cooling .ability-clock {
+  background: conic-gradient(color-mix(in srgb, var(--hero-color, #ffe600) 80%, transparent) calc(var(--sweep, 0) * 1turn), rgba(255, 255, 255, 0.07) 0);
+}
+.ability.active .ability-clock {
+  background: conic-gradient(rgba(255, 255, 255, 0.07) calc(var(--sweep, 0) * 1turn), #4dd2ff 0);
+}
+.ability.active .clock-hand { background: #4dd2ff; box-shadow: 0 0 6px #4dd2ff; }
+/* Last second: the clock flashes */
+.ability.ending .ability-clock { animation: clock-flash 0.22s steps(2, jump-none) infinite; }
+@keyframes clock-flash {
+  from { box-shadow: 0 0 0 0 transparent; filter: none; }
+  to { box-shadow: 0 0 12px 2px var(--hero-color, #fff); filter: brightness(1.9); }
+}
+.ability.active.ending .ability-clock { animation-name: clock-flash-cyan; }
+@keyframes clock-flash-cyan {
+  from { box-shadow: 0 0 0 0 transparent; filter: none; }
+  to { box-shadow: 0 0 12px 2px #4dd2ff; filter: brightness(1.9); }
+}
+/* Off cooldown: one bright pop */
+.ability.just-ready .ability-clock { animation: clock-ready 0.5s ease-out; }
+@keyframes clock-ready {
+  0% { box-shadow: 0 0 0 0 var(--hero-color); transform: scale(1.15); }
+  100% { box-shadow: 0 0 0 10px transparent; transform: scale(1); }
+}
 .ability.ready .ability-icon { color: var(--hero-color); filter: drop-shadow(0 0 4px var(--hero-color)); }
+.ability.ready .ability-clock { background: color-mix(in srgb, var(--hero-color) 35%, transparent); }
 .ability.active .ability-icon { color: #4dd2ff; filter: drop-shadow(0 0 4px rgba(77, 210, 255, 0.8)); }
 .ability-text { display: flex; flex-direction: column; position: relative; z-index: 1; }
-/* Effect countdown: a cyan bar along the bottom that drains while the effect lasts */
-.ability-active {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  height: 3px;
-  width: calc(var(--active, 0) * 100%);
-  background: #4dd2ff;
-  box-shadow: 0 0 6px #4dd2ff;
-  z-index: 1;
-}
 .ability.active { border-color: #4dd2ff; }
 .ability.active .ability-state { color: #4dd2ff; }
-/* Recharge bar: a thin yellow bar along the bottom that fills up as the cooldown ends */
-.ability.cooling::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  height: 3px;
-  width: calc((1 - var(--cd, 0)) * 100%);
-  background: color-mix(in srgb, var(--hero-color, #ffe600) 75%, transparent);
-  pointer-events: none;
-}
 .ability.cooling .ability-icon { color: #b8c3e0; }
 .ability.cooling .ability-state { color: #e6f7ff; }
 /* While its effect is active, the effect's cyan wins over the recharge colors */
 .ability.active.cooling .ability-icon { color: #4dd2ff; }
 .ability.active.cooling .ability-state { color: #4dd2ff; }
+/* Passive: an always-on ability tile, not a button */
+.ability.passive { cursor: help; background: var(--panel-2); border: 1px dashed color-mix(in srgb, var(--hero-color) 60%, transparent); border-radius: 4px; }
+.ability.passive .ability-clock { background: conic-gradient(from 0turn, var(--hero-color), transparent 30%, var(--hero-color) 50%, transparent 80%, var(--hero-color)); animation: passive-spin 6s linear infinite; }
+.ability.passive .ability-icon { color: var(--hero-color); animation: passive-spin 6s linear infinite reverse; }
+.ability.passive .ability-state { color: var(--hero-color); }
+@keyframes passive-spin { to { transform: rotate(1turn); } }
 .ability-key { font: 800 11px var(--display); color: var(--hero-color); line-height: 1.1; }
 .ability-name { font-size: 11px; color: #fff; white-space: nowrap; }
 .ability-state { font-size: 10px; color: var(--muted); }
@@ -393,8 +435,6 @@ button.danger:hover { background: rgba(255, 56, 100, 0.15); box-shadow: 0 0 10px
 .hero-profile .info-name { font-size: 15px; }
 .hero-bio { margin: 6px 0 0; font-size: 12px; color: var(--text); opacity: 0.85; }
 .hero-attack { font-size: 12px; color: var(--el-color); }
-.hero-passive { font-size: 12px; padding: 4px 6px; border-left: 2px solid var(--el-color); background: color-mix(in srgb, var(--el-color) 8%, transparent); }
-.hero-passive b { color: var(--el-color); }
 .hero-card { position: relative; }
 .hero-card.locked { opacity: 0.55; cursor: not-allowed; filter: grayscale(0.5); }
 .hero-card.locked:hover { border-color: var(--border); box-shadow: none; }
@@ -473,6 +513,7 @@ button.danger:hover { background: rgba(255, 56, 100, 0.15); box-shadow: 0 0 10px
 .map-card.locked:hover { box-shadow: none; border-color: var(--border); }
 .map-info { min-width: 0; flex: 1; }
 .map-info p { margin: 4px 0 8px; font-size: 12px; color: var(--muted); }
+.map-info p.map-hero { margin: -4px 0 8px; color: var(--gold); }
 .map-title { display: flex; justify-content: space-between; gap: 8px; font: 800 14px var(--display); color: #fff; letter-spacing: 0.04em; }
 .map-waves { color: var(--gold); font-size: 12px; white-space: nowrap; }
 .map-roster { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-wrap: wrap; gap: 3px 10px; font-size: 12px; }
@@ -683,3 +724,24 @@ button.upgrade:hover:not(:disabled) { background: rgba(125, 255, 192, 0.1); box-
   #battlefield { border-right: 0; padding-right: 0; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
 }
 
+
+/* Hover tooltips (src/ui/tooltip.ts) */
+.tooltip {
+  position: fixed;
+  z-index: 50;
+  max-width: 280px;
+  padding: 8px 10px;
+  pointer-events: none;
+  background: rgba(7, 9, 18, 0.96);
+  border: 1px solid var(--tip-color, var(--cyan));
+  border-radius: 5px;
+  box-shadow: 0 0 16px color-mix(in srgb, var(--tip-color, var(--cyan)) 35%, transparent);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.tooltip[hidden] { display: none; }
+.tooltip-title { font: 800 12px var(--display); letter-spacing: 0.06em; color: var(--tip-color, var(--cyan)); text-transform: uppercase; }
+.tooltip-meta { margin-top: 2px; font-size: 11px; color: var(--muted); }
+.tooltip-body { margin-top: 5px; color: var(--text); }
+.hero-abilities-list li { cursor: help; }
+.hero-abilities-list li.passive b { color: var(--el-color); }

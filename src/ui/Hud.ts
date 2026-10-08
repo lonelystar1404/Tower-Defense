@@ -241,7 +241,9 @@ export class Hud {
     this.setText(
       this.prepTitle,
       game.wavesStarted === 0
-        ? t('Get ready')
+        ? game.hero && game.level.heroMode === 'random'
+          ? `${t('Get ready')} · ${t('Your hero this time: {name}', { name: game.hero.def.callsign })}`
+          : t('Get ready')
         : t('Wave {n} cleared', { n: game.wavesStarted }) + (game.lastWaveBonus ? ` · ${t('+{n} gold', { n: game.lastWaveBonus })}` : ''),
     );
     const sub = t('Next: wave {n} of {total} on {field}', { n: next, total: game.totalWaves, field: `<b style="color:${fieldColor}">${t(field.name)}</b>` });
