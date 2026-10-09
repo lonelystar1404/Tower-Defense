@@ -181,6 +181,9 @@ const RECIPES: Record<Exclude<SoundId, `ability:${string}` | `impact:${string}`>
   build: (s, t) => s.notes(t, 'triangle', [440, 660], 0.07, 0.12, 0.14),
   upgrade: (s, t) => s.notes(t, 'triangle', [523, 659, 784, 1047], 0.06, 0.14, 0.13),
   sell: (s, t) => s.tone(t, 'triangle', 660, 300, 0.16, 0.13),
+  // Loans: two coins changing hands; a rising "paid in full" chime
+  loan: (s, t) => s.notes(t, 'triangle', [880, 1175], 0.06, 0.1, 0.12),
+  'loan-repaid': (s, t) => s.notes(t, 'sine', [659, 880, 1319], 0.07, 0.3, 0.12),
   // Waves
   'wave-start': (s, t) => {
     s.tone(t, 'sawtooth', 220, 440, 0.35, 0.1, 2000);

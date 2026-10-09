@@ -36,7 +36,7 @@ const FIREBASE_CONFIG = {
 };
 
 /** Bump when the room data or lockstep rules change, so old and new app versions don't mix. */
-export const PROTOCOL = 3;
+export const PROTOCOL = 4;
 const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
 export const CODE_LENGTH = 5;
 

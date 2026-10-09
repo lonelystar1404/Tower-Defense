@@ -12,6 +12,7 @@ import { HeroSelect, lastHero } from './ui/HeroSelect';
 import { Sound } from './audio/Sound';
 import { MapMenu } from './ui/MapMenu';
 import { initTooltips } from './ui/tooltip';
+import { LoanBox } from './ui/LoanBox';
 import { PartyBar } from './ui/PartyBar';
 import { memberId } from './platform/member';
 import { applyCommand, roundPos, type Command } from './net/commands';
@@ -132,6 +133,7 @@ const hud = new Hud({
     restartRun();
   },
   openMaps: () => {
+    menu.tab = level.multiplayer ? 'multi' : 'single';
     if (online) {
       if (!game.over && !window.confirm(t('Leave the online room? The game goes on without you.'))) return;
       void leaveOnline();
@@ -148,7 +150,15 @@ const hud = new Hud({
   },
 });
 
-const partyBar = new PartyBar(document.getElementById('party-bar')!, setPlayer);
+const partyBar = new PartyBar(document.getElementById('party-bar')!, setPlayer, () => loanBox.toggle());
+const loanBox = new LoanBox(document.getElementById('loan-box')!, {
+  ask: (to, amount) => {
+    if (!act({ k: 'loan', to, a: amount })) sound.play('denied');
+  },
+  answer: (lender, borrower, yes) => {
+    if (!act({ k: 'lend', from: borrower, y: yes }, lender)) sound.play('denied');
+  },
+});
 const heroBar = new HeroBar(document.getElementById('hero-bar')!, {
   selectHero,
   useAbility,
@@ -368,13 +378,13 @@ function sellSelected(): void {
  * Every action that changes the game goes through here: applied at once when playing on this
  * device, sent to the host in an online room (it comes back in a turn for everyone).
  */
-function act(cmd: Command): boolean {
+function act(cmd: Command, as = view.player): boolean {
   if (online) {
     if (!online.session || game.over) return false;
     online.session.send(cmd);
     return true;
   }
-  return applyCommand(game, view.player, cmd);
+  return applyCommand(game, as, cmd);
 }
 
 function moveMyHero(x: number, y: number): void {
@@ -843,6 +853,7 @@ const lobby = new Lobby(
     back: () => {
       if (online) void leaveOnline();
       lobby.hide();
+      menu.tab = 'multi';
       menu.show(progress, false);
     },
   },
@@ -919,10 +930,12 @@ function frame(now: number): void {
     persist();
   }
   for (const id of game.drainSounds()) sound.play(id);
+  loanBox.addNotices(game, game.drainNotices(), online ? view.player : null);
   renderer.draw(game, view);
   hud.update(game, view);
   heroBar.update(game, view.aiming, view.heroSelected, view.player);
   partyBar.update(game, view.player, online?.present);
+  loanBox.update(game, view.player, !online);
   requestAnimationFrame(frame);
 }
 menu.show(progress, false);

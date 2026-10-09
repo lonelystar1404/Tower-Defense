@@ -109,7 +109,10 @@ const SHORT = { ...overlink, waves: overlink.waves.slice(0, 4), hpScale: 1 };
 const HEROES: HeroId[] = ['vex', 'mateo', 'echo'];
 const setup: RoomSetup = { level: SHORT, seed: 12345, heroes: HEROES, memberIds: ['NW-A', 'NW-B', 'NW-C'], names: ['P1', 'P2', 'P3'] };
 
-/** Each player's scripted plan: towers to build early, then hero moves and abilities. */
+/** Set once any device has seen P3 in debt (a loan went through lockstep). */
+let loanSeen = false;
+
+/** Each player's scripted plan: towers to build early, then hero moves and abilities; between waves P3 borrows from P2. */
 function playerAI(session: Lockstep, frame: number, rng: () => number): void {
   const g = session.game;
   const me = session.player;
@@ -126,6 +129,9 @@ function playerAI(session: Lockstep, frame: number, rng: () => number): void {
     session.send({ k: 'move', x: Math.round(e.x * 100) / 100, y: Math.round(e.y * 100) / 100 });
     session.send({ k: 'cast', s: Math.floor(rng() * 2), x: Math.round(e.x * 100) / 100, y: Math.round(e.y * 100) / 100 });
   }
+  if (me === 2 && g.borrowingOpen && frame % 40 === 3 && g.debtOf(2) === 0 && !g.loanRequests.length) session.send({ k: 'loan', to: 1, a: 30 });
+  if (me === 1 && g.loanRequests.some((r) => r.lender === 1)) session.send({ k: 'lend', from: 2, y: true });
+  if (g.debtOf(2) > 0) loanSeen = true;
   if (me === 0 && g.phase === 'build' && frame % 120 === 0) session.send({ k: 'ready' });
 }
 
@@ -156,6 +162,7 @@ function play(maxDelay: number, sabotage = false) {
   const states = sessions.map((s) => JSON.stringify({
     phase: s.game.phase, lives: s.game.lives, waves: s.game.wavesStarted, gold: s.game.players.map((p) => p.gold),
     towers: s.game.towers.map((t) => [t.col, t.row, t.level, t.owner]), score: s.game.score, time: s.game.time,
+    loans: s.game.loans.map((l) => [l.borrower, l.lender, l.owed]),
   }));
   return { sessions, states };
 }
@@ -184,6 +191,7 @@ describe('Online lockstep', () => {
     expect(states[1]).toBe(states[0]);
     expect(states[2]).toBe(states[0]);
     expect(sessions.map((s) => s.resyncs)).toEqual([0, 0, 0]);
+    expect(loanSeen, 'a loan went through').toBe(true);
     // Every player's commands made it into the game.
     expect(new Set(sessions[0].game.towers.map((t) => t.owner))).toEqual(new Set([0, 1, 2]));
   });

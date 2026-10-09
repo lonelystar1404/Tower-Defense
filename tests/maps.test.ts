@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { ENEMIES } from '../src/data/enemies';
 import { LEVELS, obstacleTiles } from '../src/data/levels';
 import { Path } from '../src/systems/path';
-import { enemiesIn, newEnemiesIn } from '../src/ui/MapMenu';
-import { isUnlocked } from '../src/ui/progress';
+import { enemiesIn, mapsOnTab, newEnemiesIn } from '../src/ui/MapMenu';
+import { isUnlocked, unlockedByClearing } from '../src/ui/progress';
 
 describe('Maps', () => {
   it('have unique ids and 15–40 waves each', () => {
@@ -65,12 +65,35 @@ describe('Maps', () => {
   });
 });
 
+describe('Map select tabs', () => {
+  it('split the campaign from the multiplayer maps, each numbered from 1', () => {
+    const single = mapsOnTab('single');
+    const multi = mapsOnTab('multi');
+    expect(single.length + multi.length).toBe(LEVELS.length);
+    expect(single.map((m) => m.number)).toEqual(single.map((_, i) => i + 1));
+    expect(single.every((m) => !m.level.multiplayer)).toBe(true);
+    expect(multi.map((m) => [m.number, m.level.id])).toEqual([[1, 'overlink'], [2, 'gridlock']]);
+    expect(multi.map((m) => m.index)).toEqual([7, 8]);
+  });
+});
+
 describe('Progress', () => {
   it('opens the first map and each next one after the previous is cleared', () => {
     expect(isUnlocked(LEVELS, 0, { cleared: [] })).toBe(true);
     expect(isUnlocked(LEVELS, 1, { cleared: [] })).toBe(false);
     expect(isUnlocked(LEVELS, 1, { cleared: [LEVELS[0].id] })).toBe(true);
     expect(isUnlocked(LEVELS, 2, { cleared: [LEVELS[0].id] })).toBe(false);
+  });
+
+  it('opens multiplayer together with Map 3 (Chrome Canyon); Gridlock after Overlink', () => {
+    const at = (id: string) => LEVELS.findIndex((l) => l.id === id);
+    const overlink = at('overlink');
+    const gridlock = at('gridlock');
+    expect(isUnlocked(LEVELS, overlink, { cleared: ['neon-district'] })).toBe(false);
+    expect(isUnlocked(LEVELS, overlink, { cleared: ['neon-district', 'harbor-grid'] })).toBe(true);
+    expect(unlockedByClearing(LEVELS, overlink)?.id).toBe('harbor-grid');
+    expect(isUnlocked(LEVELS, gridlock, { cleared: ['neon-district', 'harbor-grid'] })).toBe(false);
+    expect(isUnlocked(LEVELS, gridlock, { cleared: ['overlink'] })).toBe(true);
   });
 
   it('opens maps marked unlocked without progress; Zero Point follows the normal order', () => {

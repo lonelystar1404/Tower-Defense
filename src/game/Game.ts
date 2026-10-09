@@ -1,7 +1,7 @@
 import { dist, powi, ringPoints, sq } from '../systems/dmath';
 import { BATTLEFIELD_BONUS, BATTLEFIELD_IDS, BATTLEFIELDS, type BattlefieldDef, type BattlefieldId } from '../data/battlefields';
 import { SCORE, speedPoints } from '../data/score';
-import { PARTY, PARTY_START_OFFSETS } from '../data/party';
+import { LOAN, PARTY, PARTY_START_OFFSETS } from '../data/party';
 import { ENEMIES, isBoss, type EnemyId } from '../data/enemies';
 import { PREP_TIME, obstacleTiles, type LevelDef, type WaveDef } from '../data/levels';
 import type { WeaponId } from '../data/weapons';
@@ -57,6 +57,8 @@ export type GameSound =
   | `shot-${WeaponId}`
   | 'blast' | 'kill' | 'leak' | 'crit' | 'freeze' | 'stun'
   | 'build' | 'upgrade' | 'sell'
+  /** Loans between players: gold lent, and a loan fully repaid */
+  | 'loan' | 'loan-repaid'
   | 'wave-start' | 'wave-clear' | 'win' | 'lose'
   /** Countdown ticks in the last 5 seconds; `tick-final` on the last one. */
   | 'tick' | 'tick-final'
@@ -159,6 +161,35 @@ export interface GameOptions {
   waveSeed?: number;
 }
 
+/** A player asking another for gold (between waves only; see LOAN). */
+export interface LoanRequest {
+  borrower: number;
+  lender: number;
+  amount: number;
+}
+
+/** Gold a borrower still owes a lender (one per pair; new loans add to it). */
+export interface Loan {
+  borrower: number;
+  lender: number;
+  /** Still to pay. */
+  owed: number;
+  /** Everything borrowed plus interest since the debt was last cleared (sets the installment). */
+  total: number;
+  /** Seconds toward the next installment (only runs during waves). */
+  timer: number;
+}
+
+/** Loan news for the screen (the game says what happened; the page decides who sees it). */
+export type GameNotice =
+  | { kind: 'loan-asked' | 'loan-lent' | 'loan-declined'; borrower: number; lender: number; amount: number }
+  | { kind: 'loan-repaid'; borrower: number; lender: number; amount: number };
+
+/** Gold owed back for borrowing `amount`: the amount plus LOAN.interestPercent, rounded up. */
+export function loanOwed(amount: number): number {
+  return amount + Math.ceil((amount * LOAN.interestPercent) / 100);
+}
+
 export interface PartyOptions {
   heroes: HeroId[];
   memberIds?: string[];
@@ -195,6 +226,8 @@ export interface GameSnapshot {
   /** Multiplayer runs: every player (gold, hero); `gold`/`hero` above are player 1's. */
   players?: { name: string; memberId?: string; gold: number; heroId?: HeroId; hero?: { x: number; y: number; level: number; kills: number } }[];
   stats: GameStats;
+  /** Party runs: unpaid loans between players. */
+  loans?: { borrower: number; lender: number; owed: number; total: number }[];
   /** Missing in saves from before the score existed (they continue with waves × SCORE.wave). */
   score?: RunScore;
   /** Online play: everything else a wave-end state needs to continue bit for bit (see LiveState). */
@@ -216,6 +249,8 @@ export interface LiveState {
   zones: (Omit<Zone, 'owner'> & { owner: number })[];
   strikes: (Omit<Strike, 'owner'> & { owner: number })[];
   summons: (Omit<Summon, 'owner'> & { owner: number })[];
+  /** Loan requests waiting for an answer (missing in older checkpoints). */
+  loanRequests?: LoanRequest[];
 }
 
 /** Points earned so far (see SCORE); lives lost are subtracted in `Game.scoreTotal`. */
@@ -271,6 +306,11 @@ export class Game {
   /** Bonus gold paid for the last cleared wave (shown in the "wave cleared" bar). */
   lastWaveBonus = 0;
   private sounds: GameSound[] = [];
+  private notices: GameNotice[] = [];
+  /** Loan requests waiting for the lender's answer; they lapse when the next wave starts. */
+  loanRequests: LoanRequest[] = [];
+  /** Unpaid loans, repaid during waves (see LOAN). */
+  loans: Loan[] = [];
   /** Enemies released mid-update (splits, launches); they join at the end of the tick. */
   private pending: Enemy[] = [];
   /** Everyone playing (see Player): one in single-player, 2–5 in a party. */
@@ -385,6 +425,7 @@ export class Game {
       game.hero.kills = snap.hero.kills;
     }
     game.stats = structuredClone(snap.stats);
+    game.loans = (snap.loans ?? []).filter((l) => game.players[l.borrower] && game.players[l.lender]).map((l) => ({ ...l, timer: 0 }));
     game.score = snap.score ? { ...snap.score } : { waves: snap.wavesStarted * SCORE.wave, speed: 0 };
     if (opts.exact && snap.live) game.restoreLive(snap.live);
     return game;
@@ -416,6 +457,7 @@ export class Game {
             }))
           : undefined,
       stats: structuredClone(this.stats),
+      loans: this.loans.length > 0 ? this.loans.map(({ borrower, lender, owed, total }) => ({ borrower, lender, owed, total })) : undefined,
       score: { ...this.score },
       live: this.liveState(),
     };
@@ -437,11 +479,13 @@ export class Game {
       strikes: this.strikes.map((z) => ({ ...z, owner: ownerOf(z.owner) })),
       // `angle` is drawing only (and atan2 differs between engines), so it's left out.
       summons: this.summons.map((z) => ({ ...z, angle: 0, owner: ownerOf(z.owner) })),
+      loanRequests: this.loanRequests.map((r) => ({ ...r })),
     };
   }
 
   private restoreLive(live: LiveState): void {
     this.prepRemaining = live.prepRemaining;
+    this.loanRequests = (live.loanRequests ?? []).map((r) => ({ ...r }));
     live.towers.forEach((l, i) => {
       const t = this.towers[i];
       if (t) Object.assign(t, l);
@@ -580,6 +624,9 @@ export class Game {
     );
     this.waveEnemies = this.spawnQueue.length;
     this.waveLeaks = 0;
+    // Borrowing closes for the wave: unanswered requests lapse, and repayment starts.
+    this.loanRequests = [];
+    for (const loan of this.loans) loan.timer = 0;
     this.phase = 'wave';
     this.sound('wave-start');
     return true;
@@ -595,6 +642,7 @@ export class Game {
       if (after < before && after < 5) this.sound(after === 0 ? 'tick-final' : 'tick');
       if (this.prepRemaining === 0) this.startWave();
     }
+    this.updateLoans(dt);
     this.spawnEnemies(dt);
     this.updateAbilities(dt);
     this.moveEnemies(dt);
@@ -1052,6 +1100,88 @@ export class Game {
     const out = this.sounds;
     this.sounds = [];
     return out;
+  }
+
+  /** Loan news since the last call (see GameNotice). */
+  drainNotices(): GameNotice[] {
+    const out = this.notices;
+    this.notices = [];
+    return out;
+  }
+
+  private notice(n: GameNotice): void {
+    if (this.notices.length >= MAX_QUEUED_SOUNDS) this.notices.shift();
+    this.notices.push(n);
+  }
+
+  // --- Loans (multiplayer) -------------------------------------------------------------------
+
+  /** Players can ask for and lend gold only between waves, and only in a party. */
+  get borrowingOpen(): boolean {
+    return this.phase === 'build' && this.players.length > 1;
+  }
+
+  /** `borrower` asks `lender` for `amount` gold (replacing an earlier request to them); 0 withdraws it. */
+  requestLoan(borrower: number, lender: number, amount: number): boolean {
+    if (!this.borrowingOpen || borrower === lender || !this.players[borrower] || !this.players[lender]) return false;
+    if (!Number.isInteger(amount) || amount < 0 || amount > LOAN.maxAmount) return false;
+    const had = this.loanRequests.length;
+    this.loanRequests = this.loanRequests.filter((r) => r.borrower !== borrower || r.lender !== lender);
+    if (amount === 0) return this.loanRequests.length < had;
+    this.loanRequests.push({ borrower, lender, amount });
+    this.notice({ kind: 'loan-asked', borrower, lender, amount });
+    return true;
+  }
+
+  /** `lender` lends (`accept`) or refuses what `borrower` asked for. Lending needs the gold on hand. */
+  answerLoan(lender: number, borrower: number, accept: boolean): boolean {
+    if (!this.borrowingOpen) return false;
+    const i = this.loanRequests.findIndex((r) => r.borrower === borrower && r.lender === lender);
+    if (i < 0) return false;
+    const { amount } = this.loanRequests[i];
+    if (accept && this.players[lender].gold < amount) return false;
+    this.loanRequests.splice(i, 1);
+    if (!accept) {
+      this.notice({ kind: 'loan-declined', borrower, lender, amount });
+      return true;
+    }
+    this.players[lender].gold -= amount;
+    this.players[borrower].gold += amount;
+    const owed = loanOwed(amount);
+    const loan = this.loans.find((l) => l.borrower === borrower && l.lender === lender);
+    if (loan) {
+      loan.owed += owed;
+      loan.total += owed;
+    } else this.loans.push({ borrower, lender, owed, total: owed, timer: 0 });
+    this.notice({ kind: 'loan-lent', borrower, lender, amount });
+    this.sound('loan');
+    return true;
+  }
+
+  /** What `player` still owes, summed over their loans. */
+  debtOf(player: number): number {
+    return this.loans.reduce((sum, l) => sum + (l.borrower === player ? l.owed : 0), 0);
+  }
+
+  /** During waves, once a second, each loan takes an installment from the borrower's gold (what they have, up to the installment). */
+  private updateLoans(dt: number): void {
+    if (this.phase !== 'wave' || this.loans.length === 0) return;
+    for (const loan of this.loans) {
+      loan.timer += dt;
+      while (loan.timer >= 1 && loan.owed > 0) {
+        loan.timer -= 1;
+        const borrower = this.players[loan.borrower];
+        const pay = Math.min(loan.owed, Math.ceil(loan.total / LOAN.repaySeconds), borrower.gold);
+        borrower.gold -= pay;
+        this.players[loan.lender].gold += pay;
+        loan.owed -= pay;
+      }
+      if (loan.owed === 0) {
+        this.notice({ kind: 'loan-repaid', borrower: loan.borrower, lender: loan.lender, amount: loan.total });
+        this.sound('loan-repaid');
+      }
+    }
+    this.loans = this.loans.filter((l) => l.owed > 0);
   }
 
   private sound(id: GameSound): void {

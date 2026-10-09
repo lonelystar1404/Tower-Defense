@@ -460,7 +460,7 @@ export class Hud {
         ? `${held} ${scoreText}` + (score >= this.dailyBestScore ? t('Your best today!') : t('Best today: {score}.', { score: this.dailyBestScore.toLocaleString() }))
         : held +
           (game.phase === 'won'
-            ? ' ' + (index >= 0 && index < LEVELS.length - 1 ? t('{map} unlocked.', { map: t(LEVELS[index + 1].name) }) : t('Every map cleared!'))
+            ? ' ' + (index >= 0 && LEVELS[index + 1]?.unlockedWith ? t('Campaign cleared!') : index >= 0 && index < LEVELS.length - 1 ? t('{map} unlocked.', { map: t(LEVELS[index + 1].name) }) + (LEVELS.some((l) => l.multiplayer && l.unlockedWith === LEVELS[index + 1].id) ? ' ' + t('Multiplayer unlocked.') : '') : t('Every map cleared!'))
             : '') +
           ` ${scoreText}` +
           (!best ? '' : best.isNew ? t('New best on this map!') : t('Best on this map: {score}.', { score: best.previous!.score.toLocaleString() })),

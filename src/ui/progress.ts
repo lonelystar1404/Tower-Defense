@@ -30,10 +30,21 @@ export function markCleared(progress: Progress, levelId: string): Progress {
 
 /**
  * The first map is always open; every other map opens once the one before it is cleared,
- * unless the map is marked `unlocked`.
+ * unless the map is marked `unlocked` or opens together with another map (`unlockedWith`).
  */
 export function isUnlocked(levels: readonly LevelDef[], index: number, progress: Progress): boolean {
-  return index === 0 || levels[index].unlocked === true || progress.cleared.includes(levels[index - 1].id);
+  const level = levels[index];
+  if (level.unlocked === true) return true;
+  if (level.unlockedWith) return isUnlocked(levels, levels.findIndex((l) => l.id === level.unlockedWith), progress);
+  return index === 0 || progress.cleared.includes(levels[index - 1].id);
+}
+
+/** The map to clear to open map `index` (null if it opens without one). */
+export function unlockedByClearing(levels: readonly LevelDef[], index: number): LevelDef | null {
+  const level = levels[index];
+  if (level.unlocked === true) return null;
+  if (level.unlockedWith) return unlockedByClearing(levels, levels.findIndex((l) => l.id === level.unlockedWith));
+  return index === 0 ? null : levels[index - 1];
 }
 
 /** Heroes with `unlockedBy` can be picked once that map is cleared; the rest always can. */

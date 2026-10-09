@@ -1,5 +1,5 @@
 import { ELEMENTS } from '../data/elements';
-import { PARTY, PLAYER_COLORS } from '../data/party';
+import { LOAN, PARTY, PLAYER_COLORS } from '../data/party';
 import type { Game } from '../game/Game';
 import { t } from '../i18n';
 
@@ -12,13 +12,19 @@ export function playerLabel(game: Game, player: number): string {
 /**
  * Multiplayer bar under the map: one chip per player (number, hero, element, gold). The chip of
  * the player using this screen is highlighted; on a shared device, tapping a chip switches player.
- * Shows the five-element party bonus when it's active. Hidden in single-player.
+ * Shows the five-element party bonus when it's active, what each player still owes on loans,
+ * and the Borrow button (between waves only; see LoanBox). Hidden in single-player.
  */
 export class PartyBar {
   private key = '';
 
-  constructor(private readonly root: HTMLElement, private readonly onSelect: (player: number) => void) {
+  constructor(
+    private readonly root: HTMLElement,
+    private readonly onSelect: (player: number) => void,
+    private readonly onBorrow: () => void,
+  ) {
     root.addEventListener('click', (ev) => {
+      if ((ev.target as HTMLElement).closest('[data-borrow]')) return this.onBorrow();
       const chip = (ev.target as HTMLElement).closest<HTMLElement>('[data-player]');
       if (chip) this.onSelect(Number(chip.dataset.player));
     });
@@ -29,7 +35,8 @@ export class PartyBar {
     const party = game.players.length > 1;
     this.root.hidden = !party;
     if (!party) return;
-    const key = `${active}:${game.players.map((p) => p.gold).join(',')}:${present?.join(',') ?? ''}:${t('Gold')}`;
+    const debts = game.players.map((_, i) => game.debtOf(i));
+    const key = `${active}:${game.players.map((p) => p.gold).join(',')}:${debts.join(',')}:${game.borrowingOpen}:${present?.join(',') ?? ''}:${t('Gold')}`;
     if (key === this.key) return;
     this.key = key;
     const chips = game.players
@@ -40,12 +47,14 @@ export class PartyBar {
           <span class="party-num">P${i + 1}</span>
           <span class="party-hero">${p.hero ? `<span class="party-name">${p.hero.def.callsign}</span> ${el!.icon}` : p.name}</span>
           <span class="party-gold">${p.gold}</span>
+          ${debts[i] > 0 ? `<span class="party-debt" title="${t('Owes {n} gold on loans, paid back automatically during waves.', { n: debts[i] })}">−${debts[i]}</span>` : ''}
         </button>`;
       })
       .join('');
     const bonus = game.fullElementParty
       ? `<span class="party-bonus" title="${t('All five elements in the party: every hero deals +{n}% damage.', { n: Math.round(PARTY.fullElementsAttack * 100) })}">✦ ${t('Five elements: +{n}% hero damage', { n: Math.round(PARTY.fullElementsAttack * 100) })}</span>`
       : '';
-    this.root.innerHTML = chips + bonus;
+    const borrow = `<button class="party-borrow" data-borrow ${game.borrowingOpen ? `title="${t('Ask another player for gold (+{pct}% interest).', { pct: LOAN.interestPercent })}"` : `disabled title="${t('Borrowing opens between waves.')}"`}>💰 ${t('Borrow')}</button>`;
+    this.root.innerHTML = chips + borrow + bonus;
   }
 }

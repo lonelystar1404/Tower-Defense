@@ -1,3 +1,4 @@
+import { LOAN } from '../data/party';
 import { ELEMENTS, type ElementId } from '../data/elements';
 import { WEAPONS, type WeaponId } from '../data/weapons';
 import type { Game } from '../game/Game';
@@ -14,7 +15,11 @@ export type Command =
   | { k: 'prio'; c: number; r: number }
   | { k: 'move'; x: number; y: number }
   | { k: 'cast'; s: number; x: number; y: number }
-  | { k: 'ready' };
+  | { k: 'ready' }
+  /** Ask player `to` for `a` gold (0 withdraws the request); between waves only. */
+  | { k: 'loan'; to: number; a: number }
+  /** Answer player `from`'s loan request: lend (`y`) or refuse. */
+  | { k: 'lend'; from: number; y: boolean };
 
 /** A command and the player (index) who sent it. */
 export type PlayerCommand = Command & { p: number };
@@ -44,6 +49,10 @@ export function isCommand(c: unknown): c is Command {
       return isInt(o.s, 4) && isPos(o.x) && isPos(o.y);
     case 'ready':
       return true;
+    case 'loan':
+      return isInt(o.to, 5) && isInt(o.a, LOAN.maxAmount + 1);
+    case 'lend':
+      return isInt(o.from, 5) && typeof o.y === 'boolean';
     default:
       return false;
   }
@@ -79,5 +88,9 @@ export function applyCommand(game: Game, player: number, cmd: Command): boolean 
       return game.castHero(cmd.s, cmd.x, cmd.y, player);
     case 'ready':
       return game.startWave();
+    case 'loan':
+      return game.requestLoan(player, cmd.to, cmd.a);
+    case 'lend':
+      return game.answerLoan(player, cmd.from, cmd.y);
   }
 }

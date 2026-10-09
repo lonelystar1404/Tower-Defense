@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { ENEMIES } from '../src/data/enemies';
 import { HEROES, HERO_IDS, type HeroId } from '../src/data/hero';
 import { LEVELS, type LevelDef } from '../src/data/levels';
-import { PARTY } from '../src/data/party';
+import { LOAN, PARTY } from '../src/data/party';
 import { Enemy } from '../src/entities/Enemy';
 import { dailyChallenge } from '../src/game/daily';
-import { Game } from '../src/game/Game';
+import { Game, loanOwed } from '../src/game/Game';
+import { applyCommand, isCommand } from '../src/net/commands';
 import { isMemberId, newMemberId } from '../src/platform/member';
 import { playParty } from './partyBot';
 
@@ -149,39 +150,156 @@ describe('Party (multiplayer)', () => {
   });
 });
 
-describe('Map 8: Overlink', () => {
-  const overlink = LEVELS.find((l) => l.id === 'overlink')!;
+describe('Loans between players', () => {
+  /** Waves that last a minute (one grunt that spawns late), so repayment has time to run. */
+  const slow: LevelDef = {
+    ...corridor,
+    waves: [0, 1, 2].map(() => ({ groups: [{ enemy: 'grunt' as const, count: 1, interval: 1, delay: 60 }], bonus: 0 })),
+  };
+  const loanParty = () => new Game(slow, () => 0.5, 'vex', { party: { heroes: ['vex', 'mateo', 'leila'] } });
+  const run = (g: Game, seconds: number) => {
+    for (let i = 0; i < seconds * 60 && !g.over; i++) g.update(STEP);
+  };
 
-  it('is the eighth map, a multiplayer hero map, and never the Daily Challenge', () => {
-    expect(LEVELS.indexOf(overlink)).toBe(7);
-    expect(overlink.multiplayer).toBe(true);
-    expect(overlink.heroStart).toBeDefined();
-    expect(LEVELS.filter((l) => l.multiplayer).map((l) => l.id)).toEqual(['overlink']);
+  it('owe the amount plus 10%, rounded up', () => {
+    expect(LOAN.interestPercent).toBe(10);
+    expect(loanOwed(50)).toBe(55);
+    expect(loanOwed(25)).toBe(28);
+    expect(loanOwed(30)).toBe(33);
+  });
+
+  it('move gold only when the lender says yes, and only between waves', () => {
+    const g = loanParty();
+    expect(g.requestLoan(0, 1, 100)).toBe(true);
+    expect(g.loanRequests).toEqual([{ borrower: 0, lender: 1, amount: 100 }]);
+    expect(g.players[0].gold).toBe(500);
+    expect(g.answerLoan(2, 0, true)).toBe(false); // not asked
+    expect(g.answerLoan(1, 0, true)).toBe(true);
+    expect(g.players.map((p) => p.gold)).toEqual([600, 400, 500]);
+    expect(g.debtOf(0)).toBe(110);
+    expect(g.loanRequests).toEqual([]);
+    expect(g.drainNotices().map((n) => n.kind)).toEqual(['loan-asked', 'loan-lent']);
+
+    g.requestLoan(2, 1, 50);
+    g.startWave();
+    expect(g.loanRequests).toEqual([]); // lapsed
+    expect(g.borrowingOpen).toBe(false);
+    expect(g.requestLoan(2, 0, 50)).toBe(false);
+  });
+
+  it('can be declined, withdrawn, and need the gold on hand', () => {
+    const g = loanParty();
+    g.requestLoan(0, 1, 50);
+    expect(g.answerLoan(1, 0, false)).toBe(true);
+    expect(g.players[0].gold).toBe(500);
+    expect(g.drainNotices().at(-1)?.kind).toBe('loan-declined');
+    g.requestLoan(0, 1, 50);
+    expect(g.requestLoan(0, 1, 0)).toBe(true);
+    expect(g.loanRequests).toEqual([]);
+    g.requestLoan(2, 1, 1000);
+    expect(g.answerLoan(1, 2, true)).toBe(false); // lender has 500
+    expect(g.requestLoan(0, 0, 50)).toBe(false);
+    expect(g.requestLoan(0, 1, 1001)).toBe(false);
+    expect(new Game(corridor, () => 0.5).requestLoan(0, 0, 50)).toBe(false); // single-player
+  });
+
+  it('are repaid automatically during the next wave, an installment a second, with a message when paid in full', () => {
+    const g = loanParty();
+    g.requestLoan(0, 1, 200);
+    g.answerLoan(1, 0, true);
+    g.drainNotices();
+    run(g, 5);
+    expect(g.debtOf(0)).toBe(220); // nothing taken between waves
+    g.startWave();
+    run(g, 1.01);
+    const step = Math.ceil(220 / LOAN.repaySeconds);
+    expect(g.debtOf(0)).toBe(220 - step);
+    expect(g.players[1].gold).toBe(300 + step);
+    run(g, LOAN.repaySeconds);
+    expect(g.debtOf(0)).toBe(0);
+    expect(g.loans).toEqual([]);
+    expect(g.players[0].gold).toBe(700 - 220);
+    expect(g.players[1].gold).toBe(300 + 220);
+    expect(g.drainNotices()).toEqual([{ kind: 'loan-repaid', borrower: 0, lender: 1, amount: 220 }]);
+  });
+
+  it('take only what the borrower has; the rest carries into later waves', () => {
+    const g = loanParty();
+    g.requestLoan(0, 1, 100);
+    g.answerLoan(1, 0, true);
+    g.players[0].gold = 20;
+    g.startWave();
+    run(g, 30);
+    expect(g.players[0].gold).toBe(0);
+    expect(g.debtOf(0)).toBe(110 - 20);
+    g.players[0].gold = 500;
+    run(g, 30);
+    expect(g.debtOf(0)).toBe(0);
+  });
+
+  it('travel as commands and survive a save', () => {
+    expect(isCommand({ k: 'loan', to: 1, a: 50 })).toBe(true);
+    expect(isCommand({ k: 'loan', to: 1, a: LOAN.maxAmount + 1 })).toBe(false);
+    expect(isCommand({ k: 'lend', from: 0, y: true })).toBe(true);
+    expect(isCommand({ k: 'lend', from: 0, y: 1 })).toBe(false);
+    const g = loanParty();
+    g.startWave();
+    run(g, 90);
+    expect(g.phase).toBe('build');
+    expect(applyCommand(g, 2, { k: 'loan', to: 0, a: 25 })).toBe(true);
+    expect(applyCommand(g, 0, { k: 'lend', from: 2, y: true })).toBe(true);
+    expect(g.debtOf(2)).toBe(28);
+    g.requestLoan(1, 2, 50);
+    const snap = JSON.parse(JSON.stringify(g.snapshot()));
+    const back = Game.restore(slow, snap, () => 0.5, { exact: true });
+    expect(back.loans.map(({ borrower, lender, owed }) => [borrower, lender, owed])).toEqual(g.loans.map(({ borrower, lender, owed }) => [borrower, lender, owed]));
+    expect(back.loans).toHaveLength(1);
+    expect(back.loanRequests).toEqual([{ borrower: 1, lender: 2, amount: 50 }]);
+  });
+});
+
+describe('Multiplayer maps', () => {
+  it('Overlink is the eighth map and Gridlock the ninth, both multiplayer hero maps, never the Daily Challenge', () => {
+    expect(LEVELS.filter((l) => l.multiplayer).map((l) => l.id)).toEqual(['overlink', 'gridlock']);
+    expect(LEVELS.findIndex((l) => l.id === 'overlink')).toBe(7);
+    expect(LEVELS.findIndex((l) => l.id === 'gridlock')).toBe(8);
+    for (const level of LEVELS.filter((l) => l.multiplayer)) expect(level.heroStart, level.id).toBeDefined();
     for (let day = 0; day < 200; day++) {
       const date = new Date(Date.UTC(2026, 0, 1) + day * 86_400_000);
       expect(dailyChallenge(date).level.multiplayer, date.toISOString()).toBeFalsy();
     }
   });
 
-  it('one hero alone cannot hold it, whichever hero', { timeout: 600_000 }, () => {
-    for (const hero of HERO_IDS) {
-      const g = playParty(overlink, 1, [hero]);
-      expect(g.phase, `${hero} alone`).toBe('lost');
-    }
-  });
-
-  it('a party of two can win it, whichever pair', { timeout: 900_000 }, () => {
-    // Each hero paired with the next, so every hero is tested in two pairs.
-    for (let i = 0; i < HERO_IDS.length; i++) {
-      const pair: HeroId[] = [HERO_IDS[i], HERO_IDS[(i + 1) % HERO_IDS.length]];
-      const g = playParty(overlink, 1, pair);
-      expect(g.phase, `${pair.join('+')}: fell on wave ${g.wavesStarted}`).toBe('won');
-    }
-  });
-
-  it('a full five-element party wins comfortably', { timeout: 300_000 }, () => {
-    const g = playParty(overlink, 1, ['nalani', 'zeynep', 'leila', 'rua', 'ines']);
-    expect(g.phase).toBe('won');
-    expect(g.lives).toBeGreaterThanOrEqual(15);
+  it('Gridlock has ten more waves than Overlink', () => {
+    const waves = (id: string) => LEVELS.find((l) => l.id === id)!.waves.length;
+    expect(waves('gridlock')).toBe(waves('overlink') + 10);
   });
 });
+
+for (const id of ['overlink', 'gridlock']) {
+  describe(`Map balance: ${id}`, () => {
+    const level = LEVELS.find((l) => l.id === id)!;
+
+    it('one hero alone cannot hold it, whichever hero', { timeout: 900_000 }, () => {
+      for (const hero of HERO_IDS) {
+        const g = playParty(level, 1, [hero]);
+        expect(g.phase, `${hero} alone`).toBe('lost');
+      }
+    });
+
+    it('a party of two can win it, whichever pair', { timeout: 1_200_000 }, () => {
+      // Each hero paired with the next, so every hero is tested in two pairs.
+      for (let i = 0; i < HERO_IDS.length; i++) {
+        const pair: HeroId[] = [HERO_IDS[i], HERO_IDS[(i + 1) % HERO_IDS.length]];
+        const g = playParty(level, 1, pair);
+        expect(g.phase, `${pair.join('+')}: fell on wave ${g.wavesStarted}`).toBe('won');
+      }
+    });
+
+    it('a full five-element party wins comfortably', { timeout: 400_000 }, () => {
+      const g = playParty(level, 1, ['nalani', 'zeynep', 'leila', 'rua', 'ines']);
+      expect(g.phase).toBe('won');
+      expect(g.lives).toBeGreaterThanOrEqual(15);
+    });
+  });
+}

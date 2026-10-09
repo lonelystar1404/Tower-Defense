@@ -27,6 +27,8 @@ export const OVERLINK: LevelDef = {
   hpScale: 3.2,
   heroStart: [10, 5],
   multiplayer: true,
+  /** Multiplayer opens once Map 3 (Chrome Canyon) does, not after the whole campaign. */
+  unlockedWith: 'chrome-canyon',
   waves: [
     // 1. meet the Surgers
     {

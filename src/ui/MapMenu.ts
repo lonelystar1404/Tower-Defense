@@ -4,7 +4,7 @@ import { Path } from '../systems/path';
 import { HEROES } from '../data/hero';
 import { t } from '../i18n';
 import { dailyChallenge } from '../game/daily';
-import { isUnlocked, type Progress } from './progress';
+import { isUnlocked, unlockedByClearing, type Progress } from './progress';
 import { DAILY_SLOT, dailyBest, loadRun, mapBest } from './saves';
 import { memberId } from '../platform/member';
 
@@ -41,8 +41,19 @@ export interface MapMenuActions {
   close(): void;
 }
 
+/** The map select tabs: the campaign (one player) and the multiplayer maps. */
+export type MapTab = 'single' | 'multi';
+
+/** The maps on a tab, with their index in LEVELS and their number on that tab (from 1). */
+export function mapsOnTab(tab: MapTab): { level: LevelDef; index: number; number: number }[] {
+  return LEVELS.map((level, index) => ({ level, index }))
+    .filter(({ level }) => !!level.multiplayer === (tab === 'multi'))
+    .map((m, i) => ({ ...m, number: i + 1 }));
+}
+
 /**
- * Map select screen: the Daily Challenge on top, then one card per map. Locked maps show what
+ * Map select screen: tabs for Single player (the Daily Challenge on top, then the campaign) and
+ * Multiplayer (the party maps, numbered from 1 on their own tab). One card per map. Locked maps show what
  * unlocks them; maps with a saved run offer Continue and New run.
  */
 export class MapMenu {
@@ -54,6 +65,11 @@ export class MapMenu {
       const el = ev.target as HTMLElement;
       if (el.closest('[data-close]')) return this.actions.close();
       if (el.closest('[data-copy-member]')) return copyMemberId(el.closest<HTMLElement>('[data-copy-member]')!);
+      const tab = el.closest<HTMLElement>('[data-tab]');
+      if (tab) {
+        this.tab = tab.dataset.tab as MapTab;
+        return this.refresh();
+      }
       if (el.closest('[data-daily]')) return this.actions.daily(el.closest<HTMLElement>('[data-daily]')!.dataset.daily === 'resume');
       const card = el.closest<HTMLElement>('[data-level]');
       if (!card || card.classList.contains('locked')) return;
@@ -72,6 +88,8 @@ export class MapMenu {
   }
 
   private last: { progress: Progress; canClose: boolean } | null = null;
+  /** The open tab; kept while the game runs. */
+  tab: MapTab = 'single';
 
   /** Redraws the screen if it's open (after a language change). */
   refresh(): void {
@@ -80,7 +98,7 @@ export class MapMenu {
 
   show(progress: Progress, canClose: boolean): void {
     this.last = { progress, canClose };
-    const cards = LEVELS.map((level, i) => {
+    const cards = mapsOnTab(this.tab).map(({ level, index: i, number }) => {
       const unlocked = isUnlocked(LEVELS, i, progress);
       const cleared = progress.cleared.includes(level.id);
       const fresh = new Set(newEnemiesIn(i));
@@ -98,7 +116,7 @@ export class MapMenu {
         ? `<p class="map-best">🏆 ${t('Best score {score}', { score: best.score.toLocaleString() })} · ${best.won ? t('{n} ♥ left', { n: best.lives }) : t('fell on wave {n}', { n: best.waves + 1 })}${best.hero ? ` · ${best.hero}` : ''}</p>`
         : '';
       const actions = !unlocked
-        ? `<span class="map-status locked">🔒 ${t('Clear {map} to unlock', { map: t(LEVELS[i - 1].name) })}</span>`
+        ? `<span class="map-status locked">🔒 ${t('Clear {map} to unlock', { map: t(unlockedByClearing(LEVELS, i)!.name) })}</span>`
         : save
           ? `<button class="primary" data-resume>${t('Continue · wave {n}/{total}', { n: save.snapshot.wavesStarted + 1, total: level.waves.length })}</button>
              ${level.multiplayer ? `<button data-mode="single">${t('Single')}</button><button data-mode="party">👥 ${t('Multiplayer')}</button>` : `<button data-new>${t('New run')}</button>`}
@@ -111,7 +129,7 @@ export class MapMenu {
         <div class="map-card ${unlocked ? '' : 'locked'}" data-level="${i}" ${save ? 'data-saved="1"' : ''} ${unlocked ? '' : 'aria-disabled="true"'}>
           <canvas width="200" height="120" data-preview="${i}"></canvas>
           <div class="map-info">
-            <div class="map-title"><span>${i + 1}. ${t(level.name)}</span><span class="map-waves">${t('{n} waves', { n: level.waves.length })}</span></div>
+            <div class="map-title"><span>${number}. ${t(level.name)}</span><span class="map-waves">${t('{n} waves', { n: level.waves.length })}</span></div>
             <p>${t(level.description)}</p>
             ${level.heroStart ? `<p class="map-hero">${level.multiplayer ? `👥 ${t('2–5 players, a hero each')}` : level.heroMode === 'random' ? `🎲 ${t('Random hero')}` : `🦸 ${t('Choose your hero')}`}</p>` : ''}
             <ul class="map-roster">${roster}</ul>
@@ -126,7 +144,10 @@ export class MapMenu {
           <h2>${t('Select map')}</h2>
           ${canClose ? `<button data-close>${t('Back to game')}</button>` : ''}
         </div>
-        ${dailyCard()}
+        <div class="map-tabs" role="tablist">
+          ${(['single', 'multi'] as const).map((tab) => `<button role="tab" data-tab="${tab}" class="${tab === this.tab ? 'active' : ''}" aria-selected="${tab === this.tab}">${tab === 'single' ? `🦸 ${t('Single player')}` : `👥 ${t('Multiplayer')}`}</button>`).join('')}
+        </div>
+        ${this.tab === 'single' ? dailyCard() : `<p class="map-tab-note">${t('Each player brings a hero and their own gold. Play online with a room code, or pass one device around.')}</p>`}
         <div class="map-grid">${cards}</div>
         <footer class="menu-foot">
           <button class="member-id" data-copy-member title="${t('Your player ID for multiplayer. Tap to copy.')}">${t('Member ID')} <b>${memberId()}</b></button>

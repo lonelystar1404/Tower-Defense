@@ -10,6 +10,22 @@ export const PARTY = {
 } as const;
 
 /**
+ * Gold loans between players (multiplayer only). Asked for and answered only between waves; the
+ * borrower pays back `amount + interest` during the waves after, in installments taken
+ * automatically from their gold once a second.
+ */
+export const LOAN = {
+  /** Interest in whole percent (integer math, so every device agrees). */
+  interestPercent: 10,
+  /** Amounts offered in the borrow panel. */
+  amounts: [25, 50, 100, 200] as readonly number[],
+  /** Largest single request. */
+  maxAmount: 1000,
+  /** Each installment is the debt divided by this (rounded up): about this many seconds to repay. */
+  repaySeconds: 20,
+} as const;
+
+/**
  * Where each player's hero starts, as offsets in tiles from the map's `heroStart` (player 1 in
  * the middle). Fixed numbers rather than angles, so every device places them identically.
  */
