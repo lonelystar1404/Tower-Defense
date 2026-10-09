@@ -5,14 +5,19 @@ import { seededRng } from '../systems/rng';
 import { applyCommand, isCommand, type Command, type PlayerCommand } from './commands';
 
 /**
- * Online lockstep. The host is the clock: every TICKS_PER_TURN game ticks it publishes a turn
- * holding the commands it received, and every device (host included) runs the same turns in the
- * same order on its own copy of the game, so all copies stay the same. Clients send their
- * commands to the host and see them come back in a turn (a round trip of latency).
+ * Online lockstep. One device at a time is the clock (at first the room's creator): every
+ * TICKS_PER_TURN game ticks it publishes a turn holding the commands it received, and every
+ * device (the clock included) runs the same turns in the same order on its own copy of the game,
+ * so all copies stay the same. The others send their commands to the clock's inbox and see them
+ * come back in a turn (a round trip of latency).
  *
- * At each wave end the host also publishes the game's snapshot and a hash of it. A device whose
- * hash differs restores the host's snapshot (resync); a device that joins late starts from the
- * latest one. The transport (Firebase, or memory in tests) is behind NetTransport.
+ * The clock can move: if it leaves, another device takes over with `handover(lastTurn)`, which
+ * first runs every turn the old clock published, then continues from there. Devices that rejoin
+ * start as followers from the latest checkpoint.
+ *
+ * At each wave end the clock also publishes the game's snapshot and a hash of it. A device whose
+ * hash differs restores that snapshot (resync). The transport (Firebase, or memory in tests) is
+ * behind NetTransport.
  */
 export const TICKS_PER_TURN = 6;
 const STEP = 1 / 60;
@@ -33,17 +38,16 @@ export interface Check {
 }
 
 export interface NetTransport {
-  readonly isHost: boolean;
-  /** Client → host. */
+  /** A follower's command, to the clock's inbox. */
   sendCommand(cmd: Command): void;
-  /** Host: commands from clients (player index already resolved by the transport). */
-  onCommand(cb: (player: number, cmd: Command) => void): void;
-  /** Host → everyone. */
+  /** Clock: start (or stop, with null) receiving the inbox's commands, with the sender's player index. */
+  listenCommands(cb: ((player: number, cmd: Command) => void) | null): void;
+  /** Clock → everyone. */
   publishTurn(n: number, turn: Turn): void;
   onTurn(cb: (n: number, turn: Turn) => void): void;
   publishCheck(wave: number, check: Check): void;
   onCheck(cb: (wave: number, check: Check) => void): void;
-  /** Host: drop turns up to and including `n` (everyone has a checkpoint after them). */
+  /** Clock: drop turns up to and including `n` (everyone has a checkpoint after them). */
   pruneTurns(n: number): void;
 }
 
@@ -76,17 +80,21 @@ export class Lockstep {
   game: Game;
   /** Next turn to run. */
   turn = 0;
-  /** Host: game speed (turns per second × 10) and pause. Clients follow the turns' speed. */
+  /** Clock: game speed and pause (set by the room). Followers pace themselves on the turns' speed. */
   speed = 1;
   paused = false;
-  /** Times this device restored the host's snapshot because it had drifted. */
+  /** Times this device restored a checkpoint because it had drifted. */
   resyncs = 0;
+  /** Whether this device is the clock (publishes the turns). */
+  clock = false;
+  /** Set by `handover`: the turn from which this device becomes the clock. */
+  private takeoverAt: number | null = null;
   private pending: PlayerCommand[] = [];
   private received = new Map<number, Turn>();
   /** Turns run since the last checkpoint, to replay after a resync from it. */
   private log: { n: number; turn: Turn }[] = [];
   private checks = new Map<number, Check>();
-  /** This device's own hash per wave, to compare with the host's when it arrives. */
+  /** This device's own hash per wave, to compare with the clock's when it arrives. */
   private ownHashes = new Map<number, { turn: number; hash: string }>();
   private budget = 0;
   private lastWave = 0;
@@ -102,24 +110,51 @@ export class Lockstep {
     this.game = roomGame(setup);
     if (from) this.restoreFrom(from);
     this.lastWave = this.game.wavesStarted;
-    if (net.isHost) net.onCommand((p, cmd) => isCommand(cmd) && this.pending.push({ ...cmd, p }));
-    else {
-      net.onTurn((n, turn) => {
-        if (n >= this.turn) this.received.set(n, turn);
-      });
-      net.onCheck((wave, check) => this.onCheck(wave, check));
-    }
+    net.onTurn((n, turn) => {
+      if (n >= this.turn) this.received.set(n, turn);
+    });
+    net.onCheck((wave, check) => this.onCheck(wave, check));
+  }
+
+  /**
+   * Makes this device the clock once it has run every published turn up to `lastPublished`
+   * (-1 for a new game). Until then it keeps following (catching up as fast as turns arrive).
+   */
+  handover(lastPublished: number): void {
+    if (this.clock) return;
+    this.takeoverAt = lastPublished + 1;
+  }
+
+  /** Stops being the clock (another device took over); turns come from it again. */
+  stepDown(): void {
+    if (!this.clock) return;
+    this.clock = false;
+    this.takeoverAt = null;
+    this.net.listenCommands(null);
+    // Own commands not yet published go to the new clock.
+    for (const { p: _p, ...cmd } of this.pending.splice(0)) this.net.sendCommand(cmd as Command);
   }
 
   /** Sends a command for this device's player. */
   send(cmd: Command): void {
-    if (this.net.isHost) this.pending.push({ ...cmd, p: this.player });
+    if (this.clock) this.pending.push({ ...cmd, p: this.player });
     else this.net.sendCommand(cmd);
   }
 
-  /** Advances by `dt` seconds of real time. Returns false while a client waits for the host. */
+  /** Advances by `dt` seconds of real time. Returns false while a follower waits for turns. */
   frame(dt: number): boolean {
-    if (this.net.isHost) {
+    if (this.takeoverAt !== null && !this.clock) {
+      // Catch up on everything the old clock published, as fast as it arrives, then take over.
+      let guard = 0;
+      while (this.turn < this.takeoverAt && guard++ < 2000) {
+        const turn = this.received.get(this.turn);
+        if (!turn) return false;
+        this.received.delete(this.turn);
+        this.run(this.turn, turn);
+      }
+      this.becomeClock();
+    }
+    if (this.clock) {
       if (this.paused || this.game.over) return true;
       this.budget += dt * this.speed * 60;
       let guard = 0;
@@ -133,7 +168,7 @@ export class Lockstep {
       this.budget = Math.min(this.budget, TICKS_PER_TURN);
       return true;
     }
-    // Client: run received turns at the host's pace, faster when behind.
+    // Follower: run received turns at the clock's pace, faster when behind.
     const next = this.received.get(this.turn);
     if (!next) {
       this.budget = Math.min(this.budget, TICKS_PER_TURN);
@@ -151,6 +186,14 @@ export class Lockstep {
       this.run(this.turn, turn);
     }
     return true;
+  }
+
+  private becomeClock(): void {
+    this.clock = true;
+    this.takeoverAt = null;
+    this.budget = 0;
+    this.received.clear();
+    this.net.listenCommands((p, cmd) => isCommand(cmd) && this.pending.push({ ...cmd, p }));
   }
 
   /** Runs turn `n`: its commands, then its ticks; at a wave end, the checkpoint. */
@@ -171,34 +214,37 @@ export class Lockstep {
     const hash = hashString(snap);
     const wave = this.game.wavesStarted;
     this.log = [];
-    if (this.net.isHost) {
-      this.net.publishCheck(wave, { turn: n, hash, snap });
+    if (this.clock) {
+      // A checkpoint already published for this wave (by an earlier clock) stands.
+      if (!this.checks.has(wave)) this.net.publishCheck(wave, { turn: n, hash, snap });
       // Keep the turns since the previous checkpoint, for anyone still catching up.
       const prev = this.checks.get(wave - 1);
       if (prev) this.net.pruneTurns(prev.turn);
-      this.checks.set(wave, { turn: n, hash, snap });
+      if (!this.checks.has(wave)) this.checks.set(wave, { turn: n, hash, snap });
       return;
     }
     this.ownHashes.set(wave, { turn: n, hash });
-    const host = this.checks.get(wave);
-    if (host) this.compare(wave, host);
+    const clock = this.checks.get(wave);
+    if (clock) this.compare(wave, clock);
   }
 
   private onCheck(wave: number, check: Check): void {
+    if (this.checks.get(wave)?.hash === check.hash) return;
     this.checks.set(wave, check);
+    if (this.clock) return;
     const own = this.ownHashes.get(wave);
     if (own) this.compare(wave, check);
     // Far behind (turns before this checkpoint are being pruned): jump to it.
     else if (check.turn >= this.turn + 50) this.restoreFrom(check);
   }
 
-  /** Host's checkpoint vs this device's: on a mismatch, restore the host's and replay since. */
-  private compare(wave: number, host: Check): void {
+  /** The clock's checkpoint vs this device's: on a mismatch, restore the clock's and replay since. */
+  private compare(wave: number, clock: Check): void {
     const own = this.ownHashes.get(wave);
     this.ownHashes.delete(wave);
-    if (!own || own.hash === host.hash) return;
-    const replay = this.log.filter((t) => t.n > host.turn);
-    this.restoreFrom(host);
+    if (!own || own.hash === clock.hash) return;
+    const replay = this.log.filter((t) => t.n > clock.turn);
+    this.restoreFrom(clock);
     this.resyncs++;
     for (const t of replay) this.run(t.n, t.turn);
   }

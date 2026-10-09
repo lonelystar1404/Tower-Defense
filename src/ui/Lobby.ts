@@ -5,6 +5,7 @@ import { PARTY, PLAYER_COLORS } from '../data/party';
 import { BUILD_ELEMENTS } from '../data/towers';
 import { t } from '../i18n';
 import type { RoomState } from '../net/online';
+import { drawPortraits, heroDetails } from './HeroSelect';
 
 export interface LobbyActions {
   /** Play the party on this device (no room). */
@@ -27,6 +28,8 @@ export class Lobby {
   private view: 'choose' | 'busy' | 'room' = 'choose';
   private message = '';
   private room: { code: string; uid: string; isHost: boolean; state: RoomState } | null = null;
+  /** Hero shown in the details panel (the last one tapped). */
+  private viewed: HeroId | null = null;
 
   constructor(private readonly root: HTMLElement, private readonly actions: LobbyActions, private readonly member: () => string) {
     root.addEventListener('click', (ev) => {
@@ -42,7 +45,13 @@ export class Lobby {
       }
       if (el.closest('[data-lb-start]')) return this.actions.start();
       const hero = el.closest<HTMLElement>('[data-lb-hero]');
-      if (hero && !hero.hasAttribute('disabled')) this.actions.pickHero(hero.dataset.lbHero as HeroId);
+      if (hero) {
+        // Tapping shows the hero's details; a free hero is also picked.
+        const id = hero.dataset.lbHero as HeroId;
+        this.viewed = id;
+        if (hero.classList.contains('taken')) this.render();
+        else this.actions.pickHero(id);
+      }
     });
     root.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter' && (ev.target as HTMLElement).id === 'lb-code' && this.level) {
@@ -142,11 +151,13 @@ export class Lobby {
       })
       .join('');
     const empty = Array.from({ length: PARTY.maxPlayers - players.length }, (_, i) => `<li class="lb-empty"><span class="party-num">P${players.length + i + 1}</span><span class="lb-who">${t('open')}</span></li>`).join('');
+    const viewed = this.viewed ?? mine ?? HERO_IDS[0];
+    const viewedBy = takenBy.get(viewed);
     const picker = HERO_IDS.map((id) => {
       const def = HEROES[id];
       const by = takenBy.get(id);
       const taken = by !== undefined && players[by].uid !== uid;
-      return `<button class="lb-hero-btn ${id === mine ? 'picked' : ''}" data-lb-hero="${id}" style="--el-color:${def.color}" ${taken ? 'disabled' : ''}>
+      return `<button class="lb-hero-btn ${id === mine ? 'picked' : ''} ${taken ? 'taken' : ''} ${id === viewed ? 'viewed' : ''}" data-lb-hero="${id}" style="--el-color:${def.color}" aria-pressed="${id === mine}">
         <span class="lb-hero-name">${def.callsign}</span>
         <span>${ELEMENTS[def.element].icon} ${t(ELEMENTS[def.element].name)}</span>
         ${taken ? `<span class="lb-taken" style="color:${PLAYER_COLORS[by!]}">P${by! + 1}</span>` : ''}
@@ -169,7 +180,14 @@ export class Lobby {
         <p class="party-elements">${BUILD_ELEMENTS.map((e) => `<span class="${covered.has(e) ? 'on' : ''}" style="--el-color:${ELEMENTS[e].color}">${ELEMENTS[e].icon}</span>`).join('')}
           ${covered.size >= 5 ? `<b>✦ ${t('Five elements: +{n}% hero damage', { n: Math.round(PARTY.fullElementsAttack * 100) })}</b>` : t('{n}/5 elements · all five give every hero +{pct}% damage', { n: covered.size, pct: Math.round(PARTY.fullElementsAttack * 100) })}</p>
         <h3 class="lb-pick-title">${t('Pick your hero')}</h3>
-        <div class="lb-hero-grid">${picker}</div>
+        <div class="lb-pick">
+          <div class="lb-hero-grid">${picker}</div>
+          <aside class="lb-details">
+            ${viewedBy !== undefined && players[viewedBy].uid !== uid ? `<p class="lb-taken-note" style="color:${PLAYER_COLORS[viewedBy]}">${t('Taken by P{n}', { n: viewedBy + 1 })}</p>` : viewed === mine ? `<p class="lb-taken-note">✓ ${t('Your hero')}</p>` : ''}
+            ${heroDetails(viewed)}
+          </aside>
+        </div>
       </div>`;
+    drawPortraits(this.root);
   }
 }

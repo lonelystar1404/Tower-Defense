@@ -56,8 +56,9 @@
           game's state at the end of each wave, so every player's game stays the same.</li>
       </ul>
       <p>
-        Only people with the room code can see the room. <strong>When the host leaves or the game ends, the room and
-        everything in it is deleted.</strong> We don't use this data for anything else, and we don't keep it. Like any online
+        Only people with the room code can see the room. When a game ends, its moves and snapshots are deleted; <strong>when
+        the last player leaves, the whole room is deleted.</strong> A room left behind by lost connections is deleted once
+        it's about a day old. We don't use this data for anything else, and we don't keep it. Like any online
         service, Google processes connection data such as IP addresses to run Firebase; see
         <a href="https://firebase.google.com/support/privacy">Privacy and Security in Firebase</a>.
         Playing alone, or with friends on one device, never uses Firebase.

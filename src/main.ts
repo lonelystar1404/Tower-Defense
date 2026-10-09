@@ -120,6 +120,7 @@ const hud = new Hud({
     act({ k: 'prio', c: t.col, r: t.row });
   },
   setSpeed: (speed) => {
+    if (online?.session) return online.room.setSpeed(speed);
     view.speed = speed;
     view.paused = false;
   },
@@ -579,10 +580,26 @@ let online: {
   session: Lockstep | null;
   /** Which players (by slot) are connected. */
   present: boolean[];
-  /** Real time (s) the client has been waiting for the host's next turn. */
+  /** Real time (s) this device has been waiting for the next turn. */
   waiting: number;
   starting: boolean;
+  /** Real time (s) the clock player has been disconnected (another takes over after CLOCK_GRACE). */
+  clockGone: number;
+  /** A takeover or step-down is being set up. */
+  switching: boolean;
+  /** The clock cleared the room's game data after the game ended. */
+  cleared: boolean;
+  /** The host's last heartbeat value and when (performance.now) this device saw it change. */
+  lastBeat: number | undefined;
+  beatAt: number;
+  /** When this device last wrote its own heartbeat (as host). */
+  beatSent: number;
+  /** The lobby as last drawn (it's redrawn only when something besides the heartbeat changes). */
+  lobbyKey: string;
 } | null = null;
+
+/** Seconds the clock player may be gone before the next player takes over. */
+const CLOCK_GRACE = 3;
 
 const ROOM_KEY = 'td-room';
 /** How long after leaving a room the chooser offers to rejoin it. */
@@ -629,7 +646,10 @@ async function enterRoom(level: LevelDef, open: (mod: typeof import('./net/onlin
   try {
     const mod = await import('./net/online');
     const room = await open(mod);
-    online = { mod, room, level, state: null, session: null, present: [], waiting: 0, starting: false };
+    online = {
+      mod, room, level, state: null, session: null, present: [], waiting: 0, starting: false, clockGone: 0, switching: false, cleared: false,
+      lastBeat: undefined, beatAt: performance.now(), beatSent: 0, lobbyKey: '',
+    };
     rememberRoom(room.code);
     room.watch((state) => onRoomState(state));
   } catch (e) {
@@ -645,8 +665,8 @@ function onRoomState(state: RoomState): void {
   o.state = state;
   const meta = state.meta;
   if (!meta) {
-    // The host left: the room and its data are gone.
-    if (o.session && !o.session.game.over) setNetStatus(t('Room closed: the host left.'));
+    // The room was deleted (everyone else left long ago, or it was cleaned up).
+    if (o.session && !o.session.game.over) setNetStatus(t('The room was closed.'));
     else if (!o.session) lobby.choose(o.level, t('The room was closed.'));
     rememberRoom(null);
     void o.room.leave();
@@ -654,13 +674,90 @@ function onRoomState(state: RoomState): void {
     online = null;
     return;
   }
+  if (meta.beat !== o.lastBeat) {
+    o.lastBeat = meta.beat;
+    o.beatAt = performance.now();
+  }
   if (meta.status === 'lobby') {
-    lobby.showRoom(o.room.code, o.room.uid, o.room.isHost, state);
+    const { beat: _beat, ...rest } = meta;
+    const key = JSON.stringify([rest, state.players]);
+    if (key !== o.lobbyKey) {
+      o.lobbyKey = key;
+      lobby.showRoom(o.room.code, o.room.uid, o.room.isHost, state);
+    }
     return;
   }
   if (meta.order) o.present = meta.order.map((uid) => state.players.some((p) => p.uid === uid));
-  if (!o.room.isHost) view.paused = !!meta.paused;
-  if (!o.session && !o.starting) void startOnline(meta);
+  // Pause and speed are shared: whoever changes them, everyone follows.
+  view.paused = !!meta.paused;
+  view.speed = meta.speed ?? 1;
+  if (!o.session) {
+    if (!o.starting) void startOnline(meta);
+    return;
+  }
+  // This device was made the clock (it took over, or rejoined as the host): continue the turns.
+  if (meta.host === o.room.uid && !o.session.clock && !o.switching) void takeOver(o);
+  // Someone else is the clock now (this device dropped out and was replaced): its last turns may
+  // never have reached the others, so rebuild from the latest checkpoint and follow.
+  if (meta.host !== o.room.uid && o.session.clock && !o.switching) {
+    o.session.stepDown();
+    o.session = null;
+    void startOnline(meta);
+  }
+}
+
+/** Becomes the clock: run every turn the old clock published, then publish from there. */
+async function takeOver(o: NonNullable<typeof online>): Promise<void> {
+  o.switching = true;
+  try {
+    const last = await o.room.lastTurn();
+    o.session?.handover(last);
+  } finally {
+    o.switching = false;
+  }
+}
+
+/**
+ * Every frame online: if the clock player has been gone for a while, the lowest-numbered player
+ * still here claims the clock (a transaction, so only one wins).
+ */
+function watchClock(o: NonNullable<typeof online>, dt: number): void {
+  const meta = o.state?.meta;
+  const now = performance.now();
+  // The host's heartbeat, even while paused (others treat a silent host as gone).
+  if (meta && meta.host === o.room.uid && now - o.beatSent > o.mod.BEAT_MS) {
+    o.beatSent = now;
+    o.room.beat();
+  }
+  // Only a connected device can tell whether the host is gone (or take over).
+  if (!o.room.connected) {
+    o.clockGone = 0;
+    return;
+  }
+  /** Host gone: no longer in the room for a few seconds, or silent past the timeout (e.g. a phone that lost signal). */
+  const hostGone = () => {
+    const hostHere = o.state!.players.some((p) => p.uid === meta!.host);
+    o.clockGone = hostHere ? 0 : o.clockGone + dt;
+    return o.clockGone >= CLOCK_GRACE || now - o.beatAt > o.mod.HOST_TIMEOUT_MS + 1000;
+  };
+  // Lobby: if the host left, the first player still here becomes host (and can start).
+  if (meta && meta.status === 'lobby' && !o.switching) {
+    if (meta.host !== o.room.uid && hostGone() && o.state!.players.filter((p) => p.uid !== meta.host)[0]?.uid === o.room.uid) {
+      o.switching = true;
+      o.clockGone = 0;
+      void o.room.claimClock(meta.host).finally(() => (o.switching = false));
+    }
+    return;
+  }
+  if (!meta?.order || !o.session || o.session.clock || o.switching || o.session.game.over) return;
+  const hostSlot = meta.order.indexOf(meta.host);
+  if (!hostGone() || hostSlot === view.player) return;
+  // The first player (in slot order) who is still here, other than the old host, takes over.
+  const firstHere = meta.order.findIndex((uid) => uid !== meta.host && o.state!.players.some((p) => p.uid === uid));
+  if (firstHere !== view.player) return;
+  o.switching = true;
+  o.clockGone = 0;
+  void o.room.claimClock(meta.host).finally(() => (o.switching = false));
 }
 
 /** The host started (or this device rejoined a game in progress): build the shared game. */
@@ -673,18 +770,23 @@ async function startOnline(meta: RoomMeta): Promise<void> {
     level: lvl, seed: meta.seed, heroes: meta.heroes, memberIds: meta.members ?? [], names: meta.order.map((_, i) => `P${i + 1}`),
   };
   const slot = meta.order.indexOf(o.room.uid);
-  const check = o.room.isHost ? null : await o.room.latestCheck().catch(() => null);
+  // Every device starts as a follower from the latest checkpoint (none yet: from the start).
+  const check = await o.room.latestCheck().catch(() => null);
   const { Lockstep } = await import('./net/lockstep');
   if (online !== o) return;
   o.session = new Lockstep(setup, o.room.transport(meta.order), slot, check ?? undefined);
+  o.starting = false;
   lobby.hide();
   resume(o.session.game, { slot: 'online', daily: null });
   view.player = slot;
-  view.speed = 1;
-  hud.setOnline({ code: o.room.code, host: o.room.isHost });
+  view.speed = meta.speed ?? 1;
+  view.paused = !!meta.paused;
+  hud.setOnline({ code: o.room.code, host: true });
+  // The room's host (creator at the start, or a rejoining clock nobody replaced) runs the clock.
+  if (meta.host === o.room.uid) await takeOver(o);
 }
 
-/** Leaves the room (the host's leaving closes it for everyone). */
+/** Leaves the room; the game goes on for the others, and this player can rejoin with the code. */
 async function leaveOnline(): Promise<void> {
   const o = online;
   online = null;
@@ -702,9 +804,9 @@ function setNetStatus(text: string): void {
 }
 
 function togglePause(): void {
-  if (online && !online.room.isHost) return sound.play('denied');
+  // Online, anyone can pause; the room tells everyone (and the clock stops publishing turns).
+  if (online?.session) return online.room.setPaused(!view.paused, view.player);
   view.paused = !view.paused;
-  online?.room.setPaused(view.paused);
 }
 
 const lobby = new Lobby(
@@ -734,7 +836,7 @@ const lobby = new Lobby(
 );
 
 // Debug handle for the browser console in dev builds only, e.g. `__td.game.gold = 9999`, `__td.sound`.
-if (import.meta.env.DEV) Object.assign(window, { __td: { get game() { return game; }, get session() { return online?.session ?? null; }, sound } });
+if (import.meta.env.DEV) Object.assign(window, { __td: { get game() { return game; }, get session() { return online?.session ?? null; }, get online() { return online; }, sound } });
 
 let last = performance.now();
 let acc = 0;
@@ -744,20 +846,34 @@ function frame(now: number): void {
   const session = online?.session;
   if (online && session) {
     // Online: the lockstep session runs the game (it doesn't stop for menus: others keep playing).
-    if (online.room.isHost) {
-      session.speed = view.speed;
-      session.paused = view.paused;
-    }
+    session.speed = view.speed;
+    session.paused = view.paused;
     const advanced = session.frame(dt);
     online.waiting = advanced ? 0 : online.waiting + dt;
+    watchClock(online, dt);
     if (session.game !== game) {
-      // Resynced from the host's snapshot: a new game object.
+      // Resynced from a checkpoint: a new game object.
       game = session.game;
       view.selected = null;
     }
+    if (game.over && session.clock && !online.cleared) {
+      online.cleared = true;
+      online.room.clearGameData();
+    }
+    const by = online.state?.meta?.pausedBy;
     setNetStatus(
-      game.over ? '' : view.paused && !online.room.isHost ? t('Paused by the host') : online.waiting > 1.5 ? t('Waiting for the host…') : '',
+      game.over
+        ? ''
+        : view.paused
+          ? t('Paused by P{n}', { n: (by ?? 0) + 1 })
+          : online.clockGone > 0 || performance.now() - online.beatAt > online.mod.HOST_TIMEOUT_MS
+            ? t('A player disconnected: handing over the game…')
+            : online.waiting > 1.5
+              ? t('Waiting for the other players…')
+              : '',
     );
+  } else if (online) {
+    watchClock(online, dt);
   } else if (!view.paused && !menu.open && !heroSelect.open && !lobby.open) {
     acc += dt * view.speed;
     while (acc >= STEP) {

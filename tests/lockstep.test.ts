@@ -30,34 +30,78 @@ class Hub {
   }
 }
 
-function transports(hub: Hub, clients: number): NetTransport[] {
-  const turnSubs: ((n: number, t: Turn) => void)[] = [];
-  const checkSubs: ((w: number, c: Check) => void)[] = [];
-  let onCmd: (p: number, c: Command) => void = () => {};
-  const host: NetTransport = {
-    isHost: true,
-    sendCommand: () => {},
-    onCommand: (cb) => (onCmd = cb),
-    publishTurn: (n, t) => turnSubs.forEach((cb, i) => hub.send(`turn${i}`, () => cb(n, JSON.parse(JSON.stringify(t))))),
-    onTurn: () => {},
-    publishCheck: (w, c) => checkSubs.forEach((cb, i) => hub.send(`turn${i}`, () => cb(w, c))),
-    onCheck: () => {},
-    pruneTurns: () => {},
-  };
-  const list: NetTransport[] = [host];
-  for (let i = 0; i < clients; i++) {
-    list.push({
-      isHost: false,
-      sendCommand: (c) => hub.send(`cmd${i}`, () => onCmd(i + 1, JSON.parse(JSON.stringify(c)))),
-      onCommand: () => {},
-      publishTurn: () => {},
-      onTurn: (cb) => (turnSubs[i] = cb),
-      publishCheck: () => {},
-      onCheck: (cb) => (checkSubs[i] = cb),
+/**
+ * A shared store like the room in Firebase: turns and checkpoints are kept, so a device that
+ * subscribes late (rejoining) first gets everything already published; the inbox keeps
+ * commands until whoever is the clock reads them.
+ */
+class Store {
+  turns = new Map<number, Turn>();
+  checks = new Map<number, Check>();
+  turnSubs: { dev: number; cb: (n: number, t: Turn) => void }[] = [];
+  checkSubs: { dev: number; cb: (w: number, c: Check) => void }[] = [];
+  inbox: { p: number; c: Command }[] = [];
+  reader: { dev: number; cb: (p: number, c: Command) => void } | null = null;
+  /** Devices whose network is down: nothing they publish arrives, nothing reaches them. */
+  offline = new Set<number>();
+  constructor(readonly hub: Hub) {}
+
+  transport(dev: number): NetTransport {
+    const store = this;
+    const hub = this.hub;
+    const deliverInbox = () => {
+      const r = store.reader;
+      if (!r || store.offline.has(r.dev)) return;
+      for (const m of store.inbox.splice(0)) r.cb(m.p, m.c);
+    };
+    return {
+      sendCommand(c) {
+        if (store.offline.has(dev)) return;
+        const copy = JSON.parse(JSON.stringify(c)) as Command;
+        hub.send(`cmd${dev}`, () => {
+          store.inbox.push({ p: dev, c: copy });
+          deliverInbox();
+        });
+      },
+      listenCommands(cb) {
+        store.reader = cb ? { dev, cb } : null;
+        deliverInbox();
+      },
+      publishTurn(n, t) {
+        if (store.offline.has(dev)) return;
+        const copy = JSON.parse(JSON.stringify(t)) as Turn;
+        store.turns.set(n, copy);
+        for (const s of store.turnSubs) if (!store.offline.has(s.dev)) hub.send(`turn${s.dev}`, () => s.cb(n, copy));
+      },
+      onTurn(cb) {
+        store.turnSubs.push({ dev, cb });
+        for (const [n, t] of [...store.turns].sort((a, b) => a[0] - b[0])) hub.send(`turn${dev}`, () => cb(n, t));
+      },
+      publishCheck(w, c) {
+        if (store.offline.has(dev)) return;
+        store.checks.set(w, c);
+        for (const s of store.checkSubs) if (!store.offline.has(s.dev)) hub.send(`turn${s.dev}`, () => s.cb(w, c));
+      },
+      onCheck(cb) {
+        store.checkSubs.push({ dev, cb });
+        for (const [w, c] of store.checks) hub.send(`turn${dev}`, () => cb(w, c));
+      },
       pruneTurns: () => {},
-    });
+    };
   }
-  return list;
+
+  lastTurn(): number {
+    return Math.max(-1, ...this.turns.keys());
+  }
+
+  latestCheck(): Check | undefined {
+    return [...this.checks].sort((a, b) => b[0] - a[0])[0]?.[1];
+  }
+}
+
+function transports(hub: Hub, clients: number): NetTransport[] {
+  const store = new Store(hub);
+  return Array.from({ length: clients + 1 }, (_, i) => store.transport(i));
 }
 
 const overlink = LEVELS.find((l) => l.id === 'overlink')!;
@@ -89,6 +133,7 @@ function play(maxDelay: number, sabotage = false) {
   const hub = new Hub(seededRng(7), maxDelay);
   const nets = transports(hub, 2);
   const sessions = nets.map((net, i) => new Lockstep(setup, net, i));
+  sessions[0].handover(-1);
   const ais = sessions.map((_, i) => seededRng(100 + i));
   let sabotaged = false;
   for (let frame = 0; frame < 60 * 60 * 12 && !sessions.every((s) => s.game.over); frame++) {
@@ -148,6 +193,53 @@ describe('Online lockstep', () => {
     expect(sessions[2].resyncs).toBeGreaterThanOrEqual(1);
     expect(sessions[1].resyncs).toBe(0);
     expect(states[2]).toBe(states[0]);
+  });
+
+  it('when the clock leaves mid-wave, the next player takes over and the old clock rejoins in sync', { timeout: 120_000 }, () => {
+    const hub = new Hub(seededRng(9), 8);
+    const store = new Store(hub);
+    const sessions = [0, 1, 2].map((i) => new Lockstep(setup, store.transport(i), i));
+    sessions[0].handover(-1);
+    const ais = sessions.map((_, i) => seededRng(200 + i));
+    let away = false;
+    let back = false;
+    let awayAt = 0;
+    let inWave2 = 0;
+    for (let frame = 0; frame < 60 * 60 * 12 && !sessions.every((s) => s.game.over); frame++) {
+      hub.tick();
+      // P1 (the clock) drops out in the middle of wave 2.
+      if (sessions[1].game.phase === 'wave' && sessions[1].game.wavesStarted === 2) inWave2++;
+      if (!away && inWave2 === 40) {
+        away = true;
+        awayAt = frame;
+        store.offline.add(0);
+      }
+      // Three seconds later P2 takes over from the last turn in the store.
+      if (away && frame === awayAt + 180) sessions[1].handover(store.lastTurn());
+      // After wave 3 has started, P1 comes back as a follower from the latest checkpoint.
+      if (away && !back && sessions[1].game.wavesStarted >= 3) {
+        back = true;
+        store.offline.delete(0);
+        sessions[0] = new Lockstep(setup, store.transport(0), 0, store.latestCheck());
+      }
+      sessions.forEach((s, i) => {
+        if (i === 0 && away && !back) return;
+        s.frame((1 / 60) * 3);
+        playerAI(s, frame, ais[i]);
+      });
+    }
+    for (let i = 0; i < 2000; i++) {
+      hub.tick();
+      sessions.forEach((s) => s.frame(1 / 20));
+    }
+    expect(away && back).toBe(true);
+    expect(sessions[1].clock).toBe(true);
+    expect(sessions[0].clock).toBe(false);
+    const state = (s: Lockstep) => JSON.stringify({ phase: s.game.phase, lives: s.game.lives, gold: s.game.players.map((p) => p.gold), towers: s.game.towers.map((t) => [t.col, t.row, t.level, t.owner]), score: s.game.score });
+    expect(sessions[1].game.wavesStarted).toBeGreaterThanOrEqual(3);
+    expect(state(sessions[2])).toBe(state(sessions[1]));
+    expect(state(sessions[0])).toBe(state(sessions[1]));
+    expect(sessions[2].resyncs).toBe(0);
   });
 
   it('hashes strings stably', () => {

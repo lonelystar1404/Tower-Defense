@@ -191,3 +191,55 @@ export class HeroSelect {
     this.frame = requestAnimationFrame(draw);
   }
 }
+
+/**
+ * A hero's full details: profile, stats, passive, and each ability with what it does (the
+ * online lobby shows this for the hero you tap).
+ */
+export function heroDetails(id: HeroId): string {
+  const def = HEROES[id];
+  const a = def.attack;
+  const kind = a.cleave ? t('Melee, hits around the target') : a.chain ? t('Magic bolt, jumps to {n} more', { n: a.chain }) : a.range >= 4 ? t('Long-range shots') : t('Rapid shots');
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
+  const ability = (ab: (typeof def.abilities)[number], slot: number) => `
+    <li>
+      <svg viewBox="0 0 24 24" aria-hidden="true">${ABILITY_ICONS[ab.id] ?? ''}</svg>
+      <div><b>${ABILITY_KEYS[slot]} · ${t(ab.name)}</b> <span class="lv">${abilityMeta(ab, slot)}</span><p>${t(ab.description)}</p></div>
+    </li>`;
+  return `
+    <div class="hero-details" style="--el-color:${def.color}">
+      <canvas width="96" height="96" data-portrait="${id}"></canvas>
+      ${heroProfile(def)}
+      <dl class="hero-stats">
+        <dt>${t('Attack')}</dt><dd>${kind}</dd>
+        <dt>${t('Damage')}</dt><dd>${a.damage}</dd>
+        <dt>${t('Fire rate')}</dt><dd>${a.fireRate}/s</dd>
+        <dt>${t('Range (tiles)')}</dt><dd>${a.range}</dd>
+        <dt>${t('Crit chance')}</dt><dd>${pct(a.critChance)}</dd>
+        <dt>${t('Armor pierce')}</dt><dd>${pct(a.armorPierce)}</dd>
+        <dt>${t('Move speed')}</dt><dd>${t('{n} tiles/s', { n: def.speed })}</dd>
+      </dl>
+      <ul class="hero-skill-list">
+        ${def.passive ? `<li class="passive"><svg viewBox="0 0 24 24" aria-hidden="true">${ABILITY_ICONS[`${id}-passive`] ?? ''}</svg><div><b>✦ ${t(def.passive.name)}</b> <span class="lv">${t('Passive')} · ${t('Always on')}</span><p>${t(def.passive.description)}</p></div></li>` : ''}
+        ${def.abilities.map(ability).join('')}
+      </ul>
+    </div>`;
+}
+
+/** Draws the hero portraits (`canvas[data-portrait]`) inside `root`, once. */
+export function drawPortraits(root: HTMLElement): void {
+  root.querySelectorAll<HTMLCanvasElement>('canvas[data-portrait]').forEach((c) => {
+    const def = HEROES[c.dataset.portrait as HeroId];
+    const dpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
+    c.width = 96 * dpr;
+    c.height = 96 * dpr;
+    const ctx = c.getContext('2d')!;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const g = ctx.createRadialGradient(48, 48, 4, 48, 48, 46);
+    g.addColorStop(0, `${def.color}44`);
+    g.addColorStop(1, `${def.color}00`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 96, 96);
+    drawHeroSprite(ctx, def.id, def.color, 48, 50, 24, -Math.PI / 2, 0);
+  });
+}
