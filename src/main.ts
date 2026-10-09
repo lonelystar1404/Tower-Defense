@@ -596,10 +596,14 @@ let online: {
   beatSent: number;
   /** The lobby as last drawn (it's redrawn only when something besides the heartbeat changes). */
   lobbyKey: string;
+  /** Lobby host: seconds everyone has been ready (the game starts after READY_DELAY). */
+  allReady: number;
 } | null = null;
 
 /** Seconds the clock player may be gone before the next player takes over. */
 const CLOCK_GRACE = 3;
+/** Countdown (s) once everyone is ready; anyone un-readying stops it. */
+const READY_DELAY = 5;
 
 const ROOM_KEY = 'td-room';
 /** How long after leaving a room the chooser offers to rejoin it. */
@@ -648,10 +652,11 @@ async function enterRoom(level: LevelDef, open: (mod: typeof import('./net/onlin
     const room = await open(mod);
     online = {
       mod, room, level, state: null, session: null, present: [], waiting: 0, starting: false, clockGone: 0, switching: false, cleared: false,
-      lastBeat: undefined, beatAt: performance.now(), beatSent: 0, lobbyKey: '',
+      lastBeat: undefined, beatAt: performance.now(), beatSent: 0, lobbyKey: '', allReady: 0,
     };
     rememberRoom(room.code);
     room.watch((state) => onRoomState(state));
+    room.watchChat((messages) => lobby.setChat(messages));
   } catch (e) {
     const reason = (e as { reason?: OnlineError }).reason ?? 'network';
     console.warn('Online:', e);
@@ -740,7 +745,17 @@ function watchClock(o: NonNullable<typeof online>, dt: number): void {
     o.clockGone = hostHere ? 0 : o.clockGone + dt;
     return o.clockGone >= CLOCK_GRACE || now - o.beatAt > o.mod.HOST_TIMEOUT_MS + 1000;
   };
-  // Lobby: if the host left, the first player still here becomes host (and can start).
+  // Lobby: once everyone has picked and is ready, every screen counts down; the host starts the game at 0.
+  if (meta && meta.status === 'lobby') {
+    const before = o.allReady;
+    // Counting up while everyone is ready (READY_DELAY = start); back to 0 if anyone un-readies.
+    o.allReady = o.room.everyoneReady() ? Math.min(READY_DELAY, o.allReady + dt) : 0;
+    const left = Math.ceil(READY_DELAY - o.allReady);
+    lobby.setCountdown(o.allReady > 0 ? left : null);
+    if (o.allReady > 0 && Math.ceil(READY_DELAY - before) !== left) sound.play(left === 0 ? 'tick-final' : 'tick');
+    if (o.allReady >= READY_DELAY && before < READY_DELAY && meta.host === o.room.uid && o.state) void o.room.start(o.state);
+  }
+  // Lobby: if the host left, the first player still here becomes host.
   if (meta && meta.status === 'lobby' && !o.switching) {
     if (meta.host !== o.room.uid && hostGone() && o.state!.players.filter((p) => p.uid !== meta.host)[0]?.uid === o.room.uid) {
       o.switching = true;
@@ -823,9 +838,8 @@ const lobby = new Lobby(
       void enterRoom(lvl, (mod) => mod.Room.join(mod.normalizeCode(code), memberId()));
     },
     pickHero: (hero) => void online?.room.pickHero(hero).catch(() => {}),
-    start: () => {
-      if (online?.state) void online.room.start(online.state);
-    },
+    setReady: (ready) => void online?.room.setReady(ready).catch(() => {}),
+    chat: (text) => online?.room.sendChat(text),
     back: () => {
       if (online) void leaveOnline();
       lobby.hide();

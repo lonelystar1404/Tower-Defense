@@ -9,6 +9,7 @@
  *   inbox/{push}   { u: uid, c: Command }    (players → clock; the clock deletes each after reading)
  *   turns/{n}      Turn                      (clock → everyone; pruned after each checkpoint)
  *   checks/{wave}  Check                     (clock → everyone; wave-end snapshots)
+ *   chat/{push}    { u: uid, member, text, at }  (lobby chat; deleted with the room)
  * /roomIndex/{CODE} = creation time, so rooms abandoned for a day can be found and deleted (by the
  * next player who creates a room). The last player to leave deletes the room.
  */
@@ -35,7 +36,7 @@ const FIREBASE_CONFIG = {
 };
 
 /** Bump when the room data or lockstep rules change, so old and new app versions don't mix. */
-export const PROTOCOL = 2;
+export const PROTOCOL = 3;
 const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
 export const CODE_LENGTH = 5;
 
@@ -70,7 +71,15 @@ export interface RoomPlayer {
   uid: string;
   member: string;
   hero: HeroId | null;
+  /** Picked a hero and pressed Ready (the game starts when everyone is). */
+  ready: boolean;
   joined: number;
+}
+
+export interface ChatMessage {
+  u: string;
+  member: string;
+  text: string;
 }
 
 export interface RoomState {
@@ -132,7 +141,7 @@ export class Room {
   /** Whether this device is connected to Firebase right now. */
   connected = true;
   /** This player's entry (re-written whenever the connection comes back). */
-  private me: { member: string; hero: HeroId | null; joined: number | object };
+  private me: { member: string; hero: HeroId | null; ready: boolean; joined: number | object };
 
   private constructor(
     private readonly db: Database,
@@ -141,7 +150,7 @@ export class Room {
     member: string,
     hero: HeroId | null,
   ) {
-    this.me = { member, hero, joined: serverTimestamp() };
+    this.me = { member, hero, ready: false, joined: serverTimestamp() };
   }
 
   /** Whether this device is the room's host: the creator in the lobby, the lockstep clock in game. */
@@ -237,19 +246,56 @@ export class Room {
       onValue(this.r('players'), (s) => {
         const val = (s.val() ?? {}) as Record<string, Omit<RoomPlayer, 'uid'>>;
         const players = Object.entries(val)
-          .map(([uid, p]) => ({ uid, member: p.member, hero: p.hero ?? null, joined: typeof p.joined === 'number' ? p.joined : Date.now() }))
+          .map(([uid, p]) => ({ uid, member: p.member, hero: p.hero ?? null, ready: !!p.ready, joined: typeof p.joined === 'number' ? p.joined : Date.now() }))
           .sort((a, b) => a.joined - b.joined || (a.uid < b.uid ? -1 : 1));
         const mine = players.find((p) => p.uid === this.uid);
-        if (mine) this.me = { member: mine.member, hero: mine.hero, joined: mine.joined };
+        if (mine) this.me = { member: mine.member, hero: mine.hero, ready: mine.ready, joined: mine.joined };
         this.state = { ...this.state, players };
         if (gotMeta) cb(this.state);
       }),
     );
   }
 
+  /** Picking (or changing) a hero clears Ready. */
   pickHero(hero: HeroId | null): Promise<void> {
     this.me.hero = hero;
-    return set(this.r(`players/${this.uid}/hero`), hero);
+    this.me.ready = false;
+    return update(this.r(`players/${this.uid}`), { hero, ready: false });
+  }
+
+  setReady(ready: boolean): Promise<void> {
+    this.me.ready = ready;
+    return set(this.r(`players/${this.uid}/ready`), ready);
+  }
+
+  /** Room chat: the last messages, oldest first, and every new one. */
+  watchChat(cb: (messages: ChatMessage[]) => void): void {
+    const log: ChatMessage[] = [];
+    this.unsubs.push(
+      onChildAdded(query(this.r('chat'), orderByKey(), limitToLast(50)), (s) => {
+        const m = s.val() as Partial<ChatMessage> | null;
+        if (!m?.u || typeof m.text !== 'string') return;
+        log.push({ u: m.u, member: String(m.member ?? ''), text: m.text.slice(0, 200) });
+        if (log.length > 50) log.shift();
+        cb([...log]);
+      }),
+    );
+  }
+
+  private lastChat = 0;
+  sendChat(text: string): void {
+    // A little flood protection; the rules cap the length.
+    const now = Date.now();
+    if (now - this.lastChat < 600) return;
+    this.lastChat = now;
+    void push(this.r('chat'), { u: this.uid, member: this.me.member, text: text.slice(0, 200), at: serverTimestamp() }).catch(() => {});
+  }
+
+  /** Lobby host: true when 2–5 players are here, each with a different hero, all ready. */
+  everyoneReady(): boolean {
+    const players = this.state.players;
+    const heroes = players.map((p) => p.hero);
+    return players.length >= PARTY.minPlayers && players.length <= PARTY.maxPlayers && players.every((p) => p.hero && p.ready) && new Set(heroes).size === heroes.length;
   }
 
   /** Host: starts the game with the players present, in join order (host first). */
@@ -259,6 +305,7 @@ export class Room {
     const heroes = players.map((p) => p.hero);
     if (players.length < PARTY.minPlayers || players.length > PARTY.maxPlayers) return;
     if (heroes.some((h) => !h || !(h in HEROES)) || new Set(heroes).size !== heroes.length) return;
+    if (players.some((p) => !p.ready)) return;
     await update(this.r('meta'), { status: 'playing', order: players.map((p) => p.uid), heroes, members: players.map((p) => p.member), speed: 1, paused: false });
   }
 

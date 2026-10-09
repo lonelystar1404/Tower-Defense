@@ -26,7 +26,10 @@
         "players": {
           "$uid": {
             ".write": "auth != null && auth.uid === $uid && root.child('rooms').child($code).child('meta').exists()",
-            ".validate": "!newData.exists() || newData.child('member').isString() && newData.child('member').val().length <= 32"
+            ".validate": "!newData.exists() || newData.child('member').isString() && newData.child('member').val().length <= 32",
+            "ready": {
+              ".validate": "newData.isBoolean()"
+            }
           }
         },
         "inbox": {
@@ -40,6 +43,12 @@
         },
         "checks": {
           ".write": "auth != null && root.child('rooms').child($code).child('meta/host').val() === auth.uid"
+        },
+        "chat": {
+          "$id": {
+            ".write": "auth != null && !data.exists() && newData.child('u').val() === auth.uid && root.child('rooms').child($code).child('players').child(auth.uid).exists()",
+            ".validate": "newData.child('text').isString() && newData.child('text').val().length >= 1 && newData.child('text').val().length <= 200 && newData.child('member').isString() && newData.child('member').val().length <= 32"
+          }
         }
       }
     },
