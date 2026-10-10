@@ -142,12 +142,12 @@ export const GRIDLOCK: LevelDef = {
       ],
       bonus: 118, rewardMult: 0.45,
     },
-    // 14. air raid
+    // 14. air raid (lighter since skill points: an all-or-nothing air wave for pairs)
     {
       groups: [
-        { enemy: 'drone', count: 40, interval: 0.25, hpMult: 2.41, element: 'water' },
-        { enemy: 'wyvern', count: 10, interval: 1.2, delay: 3, hpMult: 2.41 },
-        { enemy: 'carrier', count: 3, interval: 4, delay: 5, hpMult: 2.41 },
+        { enemy: 'drone', count: 34, interval: 0.25, hpMult: 2.41, element: 'water' },
+        { enemy: 'wyvern', count: 9, interval: 1.3, delay: 3, hpMult: 2.41 },
+        { enemy: 'carrier', count: 2, interval: 4, delay: 5, hpMult: 2.41 },
       ],
       bonus: 124, rewardMult: 0.45,
     },
@@ -286,12 +286,12 @@ export const GRIDLOCK: LevelDef = {
       ],
       bonus: 208, rewardMult: 0.3,
     },
-    // 29. sky fortress
+    // 29. sky fortress (lighter since skill points)
     {
       groups: [
-        { enemy: 'carrier', count: 5, interval: 3, hpMult: 6.65 },
-        { enemy: 'wyvern', count: 18, interval: 1, delay: 2, hpMult: 6.65, element: 'earth' },
-        { enemy: 'drone', count: 40, interval: 0.25, delay: 4, hpMult: 6.65, element: 'fire' },
+        { enemy: 'carrier', count: 4, interval: 3.5, hpMult: 6.65 },
+        { enemy: 'wyvern', count: 16, interval: 1.1, delay: 2, hpMult: 6.65, element: 'earth' },
+        { enemy: 'drone', count: 34, interval: 0.25, delay: 4, hpMult: 6.65, element: 'fire' },
       ],
       bonus: 214, rewardMult: 0.3,
     },
@@ -325,12 +325,12 @@ export const GRIDLOCK: LevelDef = {
       ],
       bonus: 232, rewardMult: 0.3,
     },
-    // 33. air supremacy
+    // 33. air supremacy (lighter since skill points)
     {
       groups: [
-        { enemy: 'drone', count: 50, interval: 0.2, hpMult: 8.72, element: 'metal' },
-        { enemy: 'wyvern', count: 18, interval: 1, delay: 3, hpMult: 8.72, element: 'fire' },
-        { enemy: 'carrier', count: 5, interval: 3, delay: 5, hpMult: 8.72 },
+        { enemy: 'drone', count: 42, interval: 0.22, hpMult: 8.72, element: 'metal' },
+        { enemy: 'wyvern', count: 16, interval: 1.1, delay: 3, hpMult: 8.72, element: 'fire' },
+        { enemy: 'carrier', count: 4, interval: 3.5, delay: 5, hpMult: 8.72 },
       ],
       bonus: 238, rewardMult: 0.3,
     },

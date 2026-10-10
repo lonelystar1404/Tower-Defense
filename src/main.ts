@@ -83,6 +83,15 @@ const renderer = new Renderer(canvas);
 const sound = new Sound();
 const muteButton = document.getElementById('mute') as HTMLButtonElement;
 
+// Every button clicks (ability tiles have their own cast sounds; failed actions buzz instead).
+document.addEventListener('click', (ev) => {
+  const button = (ev.target as HTMLElement | null)?.closest?.('button');
+  if (button && !button.disabled && !button.dataset.slot && button.dataset.lbReady !== '0') sound.play('click');
+});
+
+/** Speech voices for each game language. */
+const SPEECH_LANG = { en: 'en-US', es: 'es-ES', zh: 'zh-CN', vi: 'vi-VN' } as const;
+
 // Browsers only allow audio after the player interacts with the page.
 for (const type of ['pointerdown', 'keydown'] as const) window.addEventListener(type, () => sound.unlock(), { capture: true });
 window.addEventListener('pointerdown', (ev) => (view.touch = ev.pointerType !== 'mouse'), { capture: true });
@@ -162,7 +171,14 @@ const loanBox = new LoanBox(document.getElementById('loan-box')!, {
 const heroBar = new HeroBar(document.getElementById('hero-bar')!, {
   selectHero,
   useAbility,
+  learnSkill,
 });
+
+/** Spends a skill point on `slot` (learn or rank up). */
+function learnSkill(slot: number): void {
+  const hero = myHero();
+  if (!hero || !hero.canLearn(slot) || !act({ k: 'learn', s: slot })) sound.play('denied');
+}
 
 function selectHero(): void {
   if (!myHero()) return;
@@ -175,6 +191,8 @@ function selectHero(): void {
 function useAbility(slot: number): void {
   const hero = myHero();
   if (!hero) return;
+  // Not learned yet but a point is waiting: the key (or tile) learns it.
+  if (!hero.isUnlocked(slot) && hero.canLearn(slot)) return learnSkill(slot);
   if (!game.heroAbilityReady(slot, view.player)) {
     sound.play('denied');
     return;
@@ -564,7 +582,10 @@ window.addEventListener('keydown', (ev) => {
     ev.preventDefault();
     setPlayer((view.player + 1) % game.players.length);
   } else if ((ABILITY_KEYS as readonly string[]).includes(ev.key.toUpperCase())) {
-    useAbility((ABILITY_KEYS as readonly string[]).indexOf(ev.key.toUpperCase()));
+    // Shift + Z X C V spends a skill point on that ability.
+    const slot = (ABILITY_KEYS as readonly string[]).indexOf(ev.key.toUpperCase());
+    if (ev.shiftKey) learnSkill(slot);
+    else useAbility(slot);
   } else if (ev.key === 'p' || ev.key === 'P') {
     togglePause();
   } else if (/^[1-9]$/.test(ev.key)) {
@@ -848,7 +869,11 @@ const lobby = new Lobby(
       void enterRoom(lvl, (mod) => mod.Room.join(mod.normalizeCode(code), memberId()));
     },
     pickHero: (hero) => void online?.room.pickHero(hero).catch(() => {}),
-    setReady: (ready) => void online?.room.setReady(ready).catch(() => {}),
+    setReady: (ready) => {
+      // Pressing READY says "Ready" (in the game's language) instead of the click.
+      if (ready) sound.speak(t('Ready'), SPEECH_LANG[getLang()]);
+      void online?.room.setReady(ready).catch(() => {});
+    },
     chat: (text) => online?.room.sendChat(text),
     back: () => {
       if (online) void leaveOnline();

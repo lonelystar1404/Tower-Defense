@@ -584,6 +584,21 @@ button.upgrade.upgrading:disabled {
 .ability.ready .ability-state { color: var(--hero-color); }
 .ability.aiming { background: color-mix(in srgb, var(--hero-color) 18%, transparent); border-color: var(--hero-color); box-shadow: 0 0 12px var(--hero-color); }
 .ability.locked { opacity: 0.45; }
+/* Skill points: rank pips under each icon, a flashing "+" on every ability a point could go into */
+.hero-points { grid-column: 1 / -1; justify-self: start; margin-top: 2px; padding: 0 6px; font: 700 10px var(--display); color: #021015; background: var(--gold); border-radius: 3px; box-shadow: 0 0 8px rgba(255, 230, 0, 0.6); animation: points-pulse 1s ease-in-out infinite; }
+.hero-points[hidden] { display: none; }
+@keyframes points-pulse { 50% { box-shadow: 0 0 2px rgba(255, 230, 0, 0.2); } }
+.ability-ranks { position: absolute; left: 5px; bottom: 1px; width: 34px; display: flex; justify-content: center; gap: 3px; z-index: 2; pointer-events: none; }
+.ability-ranks i { width: 6px; height: 3px; border-radius: 1px; background: rgba(255, 255, 255, 0.18); }
+.ability-ranks i.on { background: var(--hero-color); box-shadow: 0 0 4px var(--hero-color); }
+.ability-learn { display: none; position: absolute; top: -5px; right: -7px; z-index: 3; width: 17px; height: 17px; border-radius: 50%; place-items: center; font: 800 13px/1 var(--display); color: #021015; background: var(--gold); box-shadow: 0 0 8px var(--gold); cursor: pointer; }
+.ability.can-learn .ability-learn { display: grid; }
+.ability.can-learn { opacity: 1; border-color: var(--gold); animation: learn-flash 0.9s ease-in-out infinite; }
+.ability.can-learn .ability-state { color: var(--gold); }
+@keyframes learn-flash { 50% { box-shadow: 0 0 14px rgba(255, 230, 0, 0.75); background: rgba(255, 230, 0, 0.1); } }
+@media (prefers-reduced-motion: reduce) {
+  .ability.can-learn, .hero-points { animation: none; }
+}
 .hero-jammed { align-self: center; font: 600 11px var(--display); color: var(--danger); animation: prep-pulse 0.8s ease-in-out infinite; }
 .hero-jammed[hidden] { display: none; }
 @media (max-width: 900px) {

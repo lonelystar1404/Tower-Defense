@@ -99,6 +99,7 @@ export class Renderer {
 
     this.drawZones(game);
     this.drawSummons(game);
+    this.drawGadgets(game);
     for (const e of game.enemies) if (e.movement === 'ground') this.drawEnemy(e, game.time);
     for (const p of game.projectiles) if (p.homing) this.drawProjectile(p);
     for (const e of game.enemies) if (e.movement === 'air') this.drawEnemy(e, game.time);
@@ -325,10 +326,107 @@ export class Renderer {
       ctx.stroke();
       // Remaining time: a clock on the rim (hand sweeping clockwise) and the seconds in the middle
       ctx.setLineDash([]);
+      if (z.quiet) {
+        ctx.restore();
+        continue;
+      }
       drawClock(ctx, z.x * TILE, z.y * TILE, z.radius * TILE + 3, t, z.ttl, z.color, game.time, { hand: 'line', width: 2.5 });
-      const icon = z.slow ? '❄' : z.armorBreak ? '⬡' : '🔥';
+      const icon = z.suppress ? '⌁' : z.towerRate ? '⧗' : z.slow === 1 ? '⛔' : z.slow ? '❄' : z.armorBreak ? '⬡' : '🔥';
       countdownLabel(ctx, z.x * TILE, z.y * TILE, `${icon} ${z.ttl.toFixed(1)}s`, z.color);
       ctx.restore();
+    }
+  }
+
+  /**
+   * Third-roster gadgets: mines on the road (blinking, with their blast ring), vines from the
+   * hero to what they hold, a rewind glyph over reprogrammed enemies, and a ticking tag on
+   * Logic Bomb carriers.
+   */
+  private drawGadgets(game: Game): void {
+    const ctx = this.ctx;
+    for (const m of game.mines) {
+      const x = m.x * TILE;
+      const y = m.y * TILE;
+      const color = m.owner.def.color;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, (m.ttl / m.maxTtl) * 4);
+      ctx.beginPath();
+      ctx.arc(x, y, m.radius * TILE, 0, Math.PI * 2);
+      ctx.setLineDash([2, 5]);
+      ctx.strokeStyle = hexAlpha(color, 0.35);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      for (let k = 0; k < 6; k++) {
+        const a = (k * Math.PI) / 3 + Math.PI / 6;
+        if (k === 0) ctx.moveTo(x + Math.cos(a) * 6, y + Math.sin(a) * 6);
+        else ctx.lineTo(x + Math.cos(a) * 6, y + Math.sin(a) * 6);
+      }
+      ctx.closePath();
+      ctx.fillStyle = THEME.hull;
+      ctx.fill();
+      neonStroke(ctx, color, 1.2);
+      if (Math.sin(game.time * 8 + m.x * 3) > 0) glowDot(ctx, x, y, 4, '#ffffff', color);
+      ctx.restore();
+    }
+    for (const v of game.tethers) {
+      const e = v.target;
+      const h = v.owner;
+      if (!e || !e.alive) continue;
+      const hx = h.x * TILE;
+      const hy = h.y * TILE;
+      const ex = e.x * TILE;
+      const ey = e.y * TILE - (e.movement === 'air' ? TILE * 0.35 : 0);
+      const color = h.def.color;
+      // A vine that wobbles along its length, thicker as it squeezes harder
+      ctx.save();
+      ctx.beginPath();
+      const len = Math.hypot(ex - hx, ey - hy) || 1;
+      const nx = -(ey - hy) / len;
+      const ny = (ex - hx) / len;
+      for (let i = 0; i <= 14; i++) {
+        const f = i / 14;
+        const w = Math.sin(f * Math.PI * 3 + game.time * 6) * 4 * Math.sin(f * Math.PI);
+        const px = hx + (ex - hx) * f + nx * w;
+        const py = hy + (ey - hy) * f + ny * w;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      neonStroke(ctx, color, 1.5 + Math.min(2, v.elapsed * 0.4));
+      ctx.beginPath();
+      ctx.arc(ex, ey, e.def.radius * TILE + 4, 0, Math.PI * 2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.restore();
+    }
+    for (const e of game.enemies) {
+      if (!e.alive) continue;
+      const x = e.x * TILE;
+      const y = e.y * TILE - (e.movement === 'air' ? TILE * 0.35 : 0);
+      if (e.reverseTime > 0) {
+        // Rewind glyph and glitch slices
+        ctx.save();
+        ctx.fillStyle = '#ff38f0';
+        ctx.globalAlpha = 0.8;
+        ctx.font = canvasFont('mono', 11);
+        ctx.textAlign = 'center';
+        ctx.fillText('⏪', x, y - e.def.radius * TILE - 6);
+        if (Math.sin(game.time * 31 + e.x) > 0.3) ctx.fillRect(x - 8, y - 2 + Math.sin(game.time * 17) * 4, 16, 2);
+        ctx.restore();
+      }
+      if (e.burstTime > 0 && e.burstOwner) {
+        // Logic Bomb tag: a small ticking ring
+        const rr = e.def.radius * TILE + 3;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(x, y, rr, -Math.PI / 2, -Math.PI / 2 + (e.burstTime % 1) * Math.PI * 2);
+        ctx.strokeStyle = e.burstOwner.def.color;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+      }
     }
   }
 

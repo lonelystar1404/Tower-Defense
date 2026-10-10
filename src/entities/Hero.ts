@@ -1,5 +1,5 @@
 import { dist } from '../systems/dmath';
-import { HERO_LEVELS, MAX_HERO_LEVEL, type HeroAbilityDef, type HeroDef } from '../data/hero';
+import { HERO_LEVELS, MAX_HERO_LEVEL, SKILLS, maxRank, type HeroAbilityDef, type HeroDef } from '../data/hero';
 
 /** A hero on the map: walks where it's told, attacks on its own, levels up from nearby kills. */
 export class Hero {
@@ -12,6 +12,8 @@ export class Hero {
   level = 1;
   /** Enemies that died within HERO_LEVELS.xpRadius of the hero, in total. */
   kills = 0;
+  /** Rank of each ability (by slot 0–3); 0 = not learned yet (see SKILLS). */
+  readonly ranks = [0, 0, 0, 0];
   /** Seconds until each ability (by slot 0–3) is ready again. */
   readonly cooldowns = [0, 0, 0, 0];
   /** Seconds left on each ability's effect after a cast, and its full length (for countdowns). */
@@ -65,7 +67,35 @@ export class Hero {
     return this.def.abilities[slot];
   }
 
+  /** Learned (rank 1 or more). */
   isUnlocked(slot: number): boolean {
-    return this.level >= this.def.abilities[slot].unlockLevel;
+    return this.ranks[slot] > 0;
+  }
+
+  /** One per level, minus the ones spent. */
+  get skillPoints(): number {
+    return this.level - this.ranks.reduce((a, b) => a + b, 0);
+  }
+
+  /** Hero level needed for the next rank of `slot` (the ultimate: its unlock level). */
+  levelForNextRank(slot: number): number {
+    const a = this.def.abilities[slot];
+    return slot === 3 ? a.unlockLevel : Math.max(a.unlockLevel, SKILLS.rankLevels[this.ranks[slot]] ?? Infinity);
+  }
+
+  /** A skill point to spend, the slot isn't maxed, and the hero is high enough for its next rank. */
+  canLearn(slot: number): boolean {
+    return this.skillPoints > 0 && this.ranks[slot] < maxRank(slot) && this.level >= this.levelForNextRank(slot);
+  }
+
+  /** Strength of the ability at its rank (1 = the data's numbers). */
+  rankPower(slot: number): number {
+    return slot === 3 ? 1 : SKILLS.rankPower[Math.max(0, this.ranks[slot] - 1)];
+  }
+
+  /** Cooldown of the ability now: base × level reduction × rank. */
+  cooldownFor(slot: number): number {
+    const rank = slot === 3 ? 1 : SKILLS.rankCooldown[Math.max(0, this.ranks[slot] - 1)];
+    return this.def.abilities[slot].cooldown * this.cooldownMult * rank;
   }
 }

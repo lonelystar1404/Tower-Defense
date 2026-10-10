@@ -16,6 +16,8 @@ export type Command =
   | { k: 'move'; x: number; y: number }
   | { k: 'cast'; s: number; x: number; y: number }
   | { k: 'ready' }
+  /** Spend a skill point on ability slot `s` (learn or rank up). */
+  | { k: 'learn'; s: number }
   /** Ask player `to` for `a` gold (0 withdraws the request); between waves only. */
   | { k: 'loan'; to: number; a: number }
   /** Answer player `from`'s loan request: lend (`y`) or refuse. */
@@ -49,6 +51,8 @@ export function isCommand(c: unknown): c is Command {
       return isInt(o.s, 4) && isPos(o.x) && isPos(o.y);
     case 'ready':
       return true;
+    case 'learn':
+      return isInt(o.s, 4);
     case 'loan':
       return isInt(o.to, 5) && isInt(o.a, LOAN.maxAmount + 1);
     case 'lend':
@@ -88,6 +92,8 @@ export function applyCommand(game: Game, player: number, cmd: Command): boolean 
       return game.castHero(cmd.s, cmd.x, cmd.y, player);
     case 'ready':
       return game.startWave();
+    case 'learn':
+      return game.learnSkill(cmd.s, player);
     case 'loan':
       return game.requestLoan(player, cmd.to, cmd.a);
     case 'lend':

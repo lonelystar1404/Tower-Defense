@@ -1,5 +1,5 @@
 import { ELEMENTS } from '../data/elements';
-import { ABILITY_KEYS, MAX_HERO_LEVEL, type HeroAbilityDef, type HeroDef } from '../data/hero';
+import { ABILITY_KEYS, MAX_HERO_LEVEL, SKILLS, maxRank, type HeroAbilityDef, type HeroDef } from '../data/hero';
 import type { Game } from '../game/Game';
 import { getLang, t } from '../i18n';
 import { tipAttrs } from './tooltip';
@@ -55,6 +55,31 @@ export const ABILITY_ICONS: Record<string, string> = {
   'zeynep-flash': '<circle cx="12" cy="12" r="4"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4M4 4l3 3M17 17l3 3M4 20l3-3M17 7l3-3"/>',
   'zeynep-incendiary': '<path d="M3 10h11l3 2-3 2H3z"/><path d="M19 8c1 1 2 2 2 4s-1 3-2 4" stroke-dasharray="2 1.5"/><path d="M6 10v4M9 10v4"/>',
   'zeynep-sunfall': '<path d="M9 2h6l-1 12h-4z" fill="currentColor" fill-opacity=".2"/><path d="M4 22c2-4 5-6 8-6s6 2 8 6"/><path d="M12 14v3"/>',
+  // Glitch
+  'linh-reprogram': '<path d="M4 12a8 8 0 1 0 2.3-5.7"/><path d="M4 4v4h4"/><path d="M10 9l-2 3 2 3M14 9l2 3-2 3"/>',
+  'linh-dos': '<rect x="3" y="5" width="18" height="12" rx="1.5"/><path d="M6 9h3M11 9h7M6 12h6M14 12h2M6 15h9"/><path d="M8 21h8M12 17v4"/>',
+  'linh-logicbomb': '<circle cx="11" cy="14" r="7"/><path d="M15 8l3-3M18 5l2 1M18 5l-1-2"/><path d="M8 12h2M8 15h5" />',
+  'linh-zeroday': '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l-3 2"/><path d="M3 3l18 18" stroke-dasharray="2 2"/>',
+  // Fuse
+  'baraka-mines': '<path d="M4 18h16"/><circle cx="7" cy="15" r="2.5"/><circle cx="17" cy="15" r="2.5"/><path d="M7 11V9M17 11V9M12 6v3"/><circle cx="12" cy="12" r="2.5" fill="currentColor" fill-opacity=".25"/>',
+  'baraka-sticky': '<circle cx="12" cy="13" r="6"/><path d="M12 7V4h3"/><path d="M9 13h6M12 10v6" stroke-dasharray="1.5 1.5"/><path d="M5 21c1-1 2-1 3 0M16 21c1-1 2-1 3 0"/>',
+  'baraka-carpet': '<path d="M3 6l18 0" stroke-dasharray="3 2"/><circle cx="5" cy="15" r="2"/><circle cx="10" cy="17" r="2.5"/><circle cx="15" cy="15" r="2"/><circle cx="20" cy="17" r="1.5"/><path d="M5 9v3M10 9v5M15 9v3M20 9v5"/>',
+  'baraka-demolition': '<path d="M2 12h20" stroke-dasharray="1 2"/><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><path d="M12 3v4M8 5l2 2M16 5l-2 2"/>',
+  // Stasis
+  'oksana-wall': '<path d="M3 20h18M5 20V9l3-4 3 4v11M13 20V7l3-4 3 4v13"/><path d="M8 12v3M16 11v3"/>',
+  'oksana-flash': '<path d="M12 2l2.5 6.5L21 9l-5 4.5L17.5 21 12 17l-5.5 4L8 13.5 3 9l6.5-.5z"/><path d="M12 9v5" />',
+  'oksana-dilation': '<path d="M6 3h12M6 21h12M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9s10 4 10 9"/>',
+  'oksana-zero': '<circle cx="12" cy="12" r="9"/><path d="M12 5v14M5 12h14M7 7l10 10M17 7L7 17"/><circle cx="12" cy="12" r="2" fill="currentColor"/>',
+  // Canopy
+  'killa-vine': '<path d="M3 21c4-2 4-8 8-8s4 6 8 4"/><path d="M11 13c0-4 3-6 6-6"/><path d="M17 7c2 0 3-2 3-4-2 0-3 2-3 4z" fill="currentColor" fill-opacity=".25"/><circle cx="19" cy="17" r="2.5"/>',
+  'killa-seed': '<path d="M12 4c4 3 5 7 3 11-1 2-5 2-6 0-2-4-1-8 3-11z"/><path d="M5 20c2-2 4-2 7-2s5 0 7 2"/><path d="M12 8v6"/>',
+  'killa-symbiosis': '<path d="M8 21V11h8v10M10 11V7h4v4"/><path d="M4 9c3 0 4 2 4 4M20 9c-3 0-4 2-4 4"/><circle cx="4" cy="8" r="1.5"/><circle cx="20" cy="8" r="1.5"/>',
+  'killa-bloom': '<circle cx="12" cy="12" r="2.5" fill="currentColor" fill-opacity=".3"/><path d="M12 9.5c-1-3 0-6 0-6s1 3 0 6M14.5 12c3-1 6 0 6 0s-3 1-6 0M12 14.5c1 3 0 6 0 6s-1-3 0-6M9.5 12c-3 1-6 0-6 0s3-1 6 0"/><path d="M14 10l4-4M10 10L6 6M14 14l4 4M10 14l-4 4" stroke-dasharray="1.5 1.5"/>',
+  // Atlas
+  'pilar-fault': '<path d="M3 20l5-6 3 3 4-7 3 3 3-9"/><path d="M3 8h4M17 20h4"/>',
+  'pilar-drift': '<path d="M4 7h13l-3-3M20 17H7l3 3"/><circle cx="4" cy="17" r="2"/><circle cx="20" cy="7" r="2"/>',
+  'pilar-anchor': '<circle cx="12" cy="5" r="2"/><path d="M12 7v14M5 14c0 4 3 7 7 7s7-3 7-7M3 14h4M17 14h4"/>',
+  'pilar-upheaval': '<path d="M2 21l7-12 4 6 3-4 6 10z" fill="currentColor" fill-opacity=".2"/><path d="M9 9V5M7 6l2-2 2 2"/>',
   // Passives (shown as an always-on ability tile)
   'vex-passive': '<circle cx="12" cy="13" r="6"/><path d="M12 7v3M12 16v3M6 13h3M15 13h3"/><path d="M8 3.5a6 6 0 0 1 8 0M10 5.5a3 3 0 0 1 4 0"/>',
   'mateo-passive': '<rect x="7" y="7" width="10" height="9" rx="2"/><path d="M7 10.5h10M10 7v3.5M13.5 7v3.5"/><path d="M3 21l3-2.5M21 21l-3-2.5M12 22v-3"/>',
@@ -65,6 +90,11 @@ export const ABILITY_ICONS: Record<string, string> = {
   'nalani-passive': '<circle cx="12" cy="12" r="9" stroke-dasharray="3 2"/><path d="M6 13c2-2 4 2 6 0s4 2 6 0"/>',
   'ines-passive': '<path d="M14 4a4 4 0 0 0-5 5L3 15l3 3 6-6a4 4 0 0 0 5-5l-2 2-2-1-1-2z"/><path d="M17 15v6M14 18h6"/>',
   'rua-passive': '<path d="M5 19C5 10 11 4 20 4c0 9-6 15-15 15z"/><path d="M5 19l9-9"/>',
+  'linh-passive': '<path d="M7 11V8a5 5 0 0 1 10 0"/><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M12 14v3M10 21l2-2 2 2"/>',
+  'baraka-passive': '<path d="M3 20h18"/><path d="M6 20c0-3 2-4 2-6 1 1 2 2 2 3 1-2 0-4 2-6 1 2 4 4 4 9" fill="currentColor" fill-opacity=".2"/>',
+  'oksana-passive': '<path d="M12 3l3 5-3 5-3-5z"/><path d="M12 13v8M8 17l-3 3M16 17l3 3"/><path d="M4 9l2 1M20 9l-2 1" stroke-dasharray="1 1"/>',
+  'killa-passive': '<circle cx="12" cy="6" r="3"/><path d="M12 11v10M12 15c-3 0-5-2-6-4 3 0 5 1 6 4zM12 17c3 0 5-2 6-4-3 0-5 1-6 4z"/><path d="M5 3l1.5 1.5M19 3l-1.5 1.5"/>',
+  'pilar-passive': '<path d="M5 21l2-8h10l2 8z"/><path d="M9 13V9h6v4"/><path d="M4 6l3 2M20 6l-3 2M12 3v3" stroke-dasharray="1.5 1.5"/>',
   'zeynep-passive': '<circle cx="12" cy="12" r="8"/><path d="M14.5 9.5c-.5-1-1.5-1.5-2.5-1.5-1.5 0-2.5.8-2.5 2s1 1.7 2.5 2 2.5.8 2.5 2-1 2-2.5 2c-1 0-2-.5-2.5-1.5M12 6.5v1.5M12 16v1.5"/>',
   'echo-swarm': '<rect x="3" y="3" width="6" height="4" rx="1"/><rect x="15" y="3" width="6" height="4" rx="1"/><rect x="3" y="17" width="6" height="4" rx="1"/><rect x="15" y="17" width="6" height="4" rx="1"/><circle cx="12" cy="12" r="2.5"/>',
 };
@@ -72,12 +102,15 @@ export const ABILITY_ICONS: Record<string, string> = {
 export interface HeroBarActions {
   selectHero(): void;
   useAbility(slot: number): void;
+  /** Spend a skill point on the ability (learn or rank up). */
+  learnSkill(slot: number): void;
 }
 
 /**
- * Hero bar under the map: the hero's call sign, level and XP, and its four ability buttons with
- * icon, key, effect countdown, cooldown, or lock level. Hidden on maps without a hero; rebuilt
- * when the hero changes.
+ * Hero bar under the map: the hero's call sign, level, XP, and unspent skill points, and its
+ * four ability buttons with icon, key, rank pips, effect countdown, or cooldown. When a skill
+ * point is waiting, every ability it could go into flashes with a "+" (tap it, or Shift + key).
+ * Hidden on maps without a hero; rebuilt when the hero changes.
  */
 export class HeroBar {
   private buttons: HTMLButtonElement[] = [];
@@ -86,6 +119,7 @@ export class HeroBar {
   private xpFill!: HTMLElement;
   private xpText!: HTMLElement;
   private jammed!: HTMLElement;
+  private points!: HTMLElement;
 
   constructor(private readonly root: HTMLElement, private readonly actions: HeroBarActions) {}
 
@@ -98,6 +132,7 @@ export class HeroBar {
         <span class="hero-level"></span>
         <span class="hero-xp"><span class="hero-xp-fill"></span></span>
         <span class="hero-xp-text"></span>
+        <span class="hero-points" hidden></span>
       </button>
       <div class="hero-abilities">
         ${
@@ -119,7 +154,9 @@ export class HeroBar {
             <span class="ability-clock">
               <svg class="ability-icon" viewBox="0 0 24 24" aria-hidden="true">${ABILITY_ICONS[a.id] ?? ''}</svg>
               <span class="clock-hand"></span>
+              <span class="ability-learn" title="${t('Learn')} [Shift+${ABILITY_KEYS[slot]}]" aria-label="${t('Learn')}">+</span>
             </span>
+            <span class="ability-ranks">${'<i></i>'.repeat(maxRank(slot))}</span>
             <span class="ability-text">
               <span class="ability-key">${ABILITY_KEYS[slot]}</span>
               <span class="ability-name">${t(a.name)}</span>
@@ -136,7 +173,14 @@ export class HeroBar {
     this.jammed = this.root.querySelector('.hero-jammed')!;
     this.root.querySelector('.hero-portrait')!.addEventListener('click', () => this.actions.selectHero());
     this.buttons = [...this.root.querySelectorAll<HTMLButtonElement>('[data-slot]')];
-    this.buttons.forEach((b) => b.addEventListener('click', () => this.actions.useAbility(Number(b.dataset.slot))));
+    this.buttons.forEach((b) =>
+      b.addEventListener('click', (ev) => {
+        const slot = Number(b.dataset.slot);
+        if ((ev.target as HTMLElement).closest('.ability-learn')) this.actions.learnSkill(slot);
+        else this.actions.useAbility(slot);
+      }),
+    );
+    this.points = this.root.querySelector('.hero-points')!;
   }
 
   /** Shows `player`'s hero (the one using this screen). */
@@ -152,12 +196,18 @@ export class HeroBar {
     this.xpFill.style.width = `${Math.round(frac * 100)}%`;
     this.xpText.textContent = next === null ? t('{n} kills', { n: hero.kills }) : t('{kills}/{next} kills nearby', { kills: hero.kills, next });
     this.jammed.hidden = !hero.jammed;
+    const points = hero.skillPoints;
+    this.points.hidden = points <= 0;
+    const pointsText = `+${points} ${t('skill point')}`;
+    if (this.points.textContent !== pointsText) this.points.textContent = pointsText;
     this.buttons.forEach((b, slot) => {
       const a = hero.ability(slot);
       const unlocked = hero.isUnlocked(slot);
       const cd = hero.cooldowns[slot];
-      const full = a.cooldown * hero.cooldownMult;
+      const full = hero.cooldownFor(slot);
       b.classList.toggle('locked', !unlocked);
+      b.classList.toggle('can-learn', hero.canLearn(slot));
+      b.querySelectorAll('.ability-ranks i').forEach((pip, i) => pip.classList.toggle('on', i < hero.ranks[slot]));
       b.classList.toggle('cooling', unlocked && cd > 0);
       b.classList.toggle('ready', unlocked && cd <= 0);
       b.classList.toggle('aiming', aiming === slot);
@@ -180,7 +230,9 @@ export class HeroBar {
       }
       const label = a.effect.kind === 'strike' ? t('Impact') : t('Active');
       const state = !unlocked
-        ? `🔒 ${t('Lv')} ${a.unlockLevel}`
+        ? hero.canLearn(slot)
+          ? `+ ${t('Learn')}`
+          : `🔒 ${t('Lv')} ${hero.levelForNextRank(slot)}`
         : showEffect
           ? `${label} ${effect.toFixed(1)}s`
           : cd > 0
@@ -192,7 +244,13 @@ export class HeroBar {
   }
 }
 
-/** "Z · Lv 3 · cooldown 18s": the muted line in an ability's tooltip. */
+/**
+ * The muted line in an ability's tooltip: "Z · 3 ranks (Lv 1 / 3 / 5) · cooldown 7s" or, for the
+ * ultimate, "V · Ultimate, learn at Lv 6 · cooldown 55s". Descriptions give the max-rank numbers.
+ */
 export function abilityMeta(a: HeroAbilityDef, slot: number): string {
-  return `${ABILITY_KEYS[slot]} · ${t('Unlocks at Lv {n}', { n: a.unlockLevel })} · ${t('cooldown {n}s', { n: a.cooldown })}`;
+  const ranks = slot === 3
+    ? t('Ultimate, learn at Lv {n}', { n: a.unlockLevel })
+    : t('{n} ranks (Lv {levels})', { n: SKILLS.basicRanks, levels: SKILLS.rankLevels.join(' / ') });
+  return `${ABILITY_KEYS[slot]} · ${ranks} · ${t('cooldown {n}s', { n: a.cooldown })}`;
 }

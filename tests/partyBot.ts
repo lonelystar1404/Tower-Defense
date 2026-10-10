@@ -35,6 +35,8 @@ function coverage(game: Game, col: number, row: number, option: TowerOption): nu
 /** The single-player hero AI from tests/game.test.ts, for any player's hero. */
 export function heroAI(game: Game, player: number): void {
   const hero = game.players[player].hero!;
+  // Spend skill points with the default build (ultimate first when allowed, else the lowest of Z X C).
+  while (game.learnNext(player));
   const alive = game.enemies.filter((e) => e.alive && !e.hidden);
   if (alive.length === 0) return;
   const near = (x: number, y: number, r: number) => alive.filter((e) => Math.hypot(e.x - x, e.y - y) <= r);

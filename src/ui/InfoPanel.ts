@@ -1,6 +1,6 @@
 import { weakenedElement } from '../data/battlefields';
 import { ELEMENTS, OVERCOMES, RESIST_PENALTY, WEAKNESS_BONUS, type ElementId } from '../data/elements';
-import { ABILITY_KEYS, HERO_LEVELS, type HeroDef } from '../data/hero';
+import { ABILITY_KEYS, HERO_LEVELS, maxRank, type HeroDef } from '../data/hero';
 import { ABILITY_ICONS } from './HeroBar';
 import { combosFor } from '../data/combos';
 import { describeEffect } from '../data/status';
@@ -95,7 +95,7 @@ export class InfoPanel {
     if (!subject) return 'none';
     if (subject.kind === 'hero') {
       const h = game.players[this.player]?.hero;
-      return h ? `hero:${h.def.id}:${h.level}:${h.kills}:${h.cooldowns.map((c) => Math.ceil(c)).join(',')}:${h.jammed}:${game.battlefield.id}` : 'none';
+      return h ? `hero:${h.def.id}:${h.level}:${h.kills}:${h.ranks.join('')}:${h.cooldowns.map((c) => Math.ceil(c)).join(',')}:${h.jammed}:${game.battlefield.id}` : 'none';
     }
     if (subject.kind === 'build') {
       const { weapon, element } = subject.option;
@@ -115,16 +115,17 @@ export class InfoPanel {
     const a = def.attack;
     const abilities = def.abilities
       .map((ab, slot) => {
+        const rank = `${t('Rank {n}/{max}', { n: hero.ranks[slot], max: maxRank(slot) })} (${Math.round(hero.rankPower(slot) * 100)}%)`;
         const state = !hero.isUnlocked(slot)
-          ? `🔒 ${t('Unlocks at Lv {n}', { n: ab.unlockLevel })}`
-          : hero.cooldowns[slot] > 0
-            ? t('Recharging: {n}s', { n: Math.ceil(hero.cooldowns[slot]) })
-            : t('Ready');
+          ? hero.canLearn(slot)
+            ? `+ ${t('Learn')}`
+            : `🔒 ${t('Unlocks at Lv {n}', { n: hero.levelForNextRank(slot) })}`
+          : `${rank} · ${hero.cooldowns[slot] > 0 ? t('Recharging: {n}s', { n: Math.ceil(hero.cooldowns[slot]) }) : t('Ready')}`;
         return `
         <div class="info-block hero-ability" style="--el-color:${def.color}">
           <div class="info-label"><svg viewBox="0 0 24 24" aria-hidden="true">${ABILITY_ICONS[ab.id] ?? ''}</svg>[${ABILITY_KEYS[slot]}] ${t(ab.name)}</div>
           <p>${t(ab.description)}</p>
-          <p class="muted">${t('cooldown {n}s', { n: Math.round(ab.cooldown * hero.cooldownMult) })} · ${state}</p>
+          <p class="muted">${t('cooldown {n}s', { n: Math.round(hero.cooldownFor(slot)) })} · ${state}</p>
         </div>`;
       })
       .join('');

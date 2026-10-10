@@ -64,6 +64,7 @@ function playWave(game: Game): void {
  */
 function heroAI(game: Game): void {
   const hero = game.hero!;
+  while (game.learnNext());
   const alive = game.enemies.filter((e) => e.alive && !e.hidden);
   if (alive.length === 0) return;
   const near = (x: number, y: number, r: number) => alive.filter((e) => Math.hypot(e.x - x, e.y - y) <= r);

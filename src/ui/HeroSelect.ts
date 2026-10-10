@@ -250,7 +250,7 @@ const activeSkill = new Map<HeroId, number>();
 export function heroDetails(id: HeroId): string {
   const def = HEROES[id];
   const a = def.attack;
-  const kind = a.cleave ? t('Melee, hits around the target') : a.chain ? t('Magic bolt, jumps to {n} more', { n: a.chain }) : a.range >= 4 ? t('Long-range shots') : t('Rapid shots');
+  const kind = a.cleave ? (a.range >= 2 ? t('Grenades, splash around the target') : t('Melee, hits around the target')) : a.chain ? t('Magic bolt, jumps to {n} more', { n: a.chain }) : a.range >= 4 ? t('Long-range shots') : t('Rapid shots');
   const pct = (v: number) => `${Math.round(v * 100)}%`;
   const skills = [
     ...(def.passive

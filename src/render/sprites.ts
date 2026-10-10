@@ -417,6 +417,117 @@ export function drawHeroSprite(
       glowDot(ctx, r * 1.3, Math.sin(time * 9) * r * 0.42, r * 0.18, '#fff0c0', color);
       glowDot(ctx, -r * 0.1, 0, r * 0.3, '#ffd2c4', color);
       break;
+    case 'linh': {
+      // Hooded diamond that glitches: slices of it jump sideways now and then, a visor of code
+      const jitter = Math.sin(time * 37) > 0.85 ? r * 0.18 : 0;
+      ctx.beginPath();
+      ctx.moveTo(r * 0.95, 0);
+      ctx.lineTo(0, r * 0.85);
+      ctx.lineTo(-r * 0.8, 0);
+      ctx.lineTo(0, -r * 0.85);
+      ctx.closePath();
+      body();
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.55;
+      ctx.fillRect(-r * 0.5 + jitter, -r * 0.35, r * 0.9, 2);
+      ctx.fillRect(-r * 0.4 - jitter, r * 0.25, r * 0.7, 2);
+      ctx.globalAlpha = 1;
+      // Floating holo-keys orbiting
+      for (let i = 0; i < 4; i++) {
+        const a = time * 1.8 + (i * Math.PI) / 2;
+        ctx.fillStyle = `${color}cc`;
+        ctx.fillRect(Math.cos(a) * r * 1.35 - 1.5, Math.sin(a) * r * 1.35 - 1.5, 3, 3);
+      }
+      glowDot(ctx, r * 0.2, 0, r * 0.38, '#ffd0fb', color);
+      break;
+    }
+    case 'baraka':
+      // Stocky plated body, a stubby grenade launcher, and a bandolier of blinking charges
+      ctx.fillStyle = color;
+      ctx.fillRect(r * 0.3, -r * 0.18, r * 0.95, r * 0.36);
+      roundRect(ctx, -r * 0.85, -r * 0.8, r * 1.4, r * 1.6, r * 0.25);
+      body();
+      for (let i = 0; i < 4; i++) {
+        const on = Math.floor(time * 3 + i) % 4 === 0;
+        glowDot(ctx, -r * 0.55 + i * r * 0.32, -r * 0.45 + i * r * 0.3, r * (on ? 0.2 : 0.12), on ? '#fff0c0' : `${color}`, color);
+      }
+      glowDot(ctx, r * 1.3, 0, r * 0.18, '#ffd0c0', color);
+      break;
+    case 'oksana': {
+      // Ice-crystal hexagon with a clock hand sweeping around it
+      ctx.beginPath();
+      for (let k = 0; k < 6; k++) {
+        const a = (k * Math.PI) / 3;
+        if (k === 0) ctx.moveTo(Math.cos(a) * r * 0.9, Math.sin(a) * r * 0.9);
+        else ctx.lineTo(Math.cos(a) * r * 0.9, Math.sin(a) * r * 0.9);
+      }
+      ctx.closePath();
+      body();
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 1.3, 0, Math.PI * 2);
+      ctx.strokeStyle = `${color}55`;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const hand = -time * 1.2;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(hand) * r * 1.3, Math.sin(hand) * r * 1.3);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      glowDot(ctx, 0, 0, r * 0.42, '#ffffff', color);
+      break;
+    }
+    case 'killa':
+      // Round body crowned with three leaf fronds, spores drifting around
+      for (let i = -1; i <= 1; i++) {
+        ctx.save();
+        ctx.rotate(i * 0.7 + Math.sin(time * 2) * 0.08);
+        ctx.beginPath();
+        ctx.moveTo(r * 0.4, 0);
+        ctx.quadraticCurveTo(r * 1.1, -r * 0.4, r * 1.45, 0);
+        ctx.quadraticCurveTo(r * 1.1, r * 0.4, r * 0.4, 0);
+        ctx.fillStyle = `${color}aa`;
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.8, 0, Math.PI * 2);
+      body();
+      for (let i = 0; i < 3; i++) {
+        const a = -time * 1.4 + (i * Math.PI * 2) / 3;
+        glowDot(ctx, Math.cos(a) * r * 1.25, Math.sin(a) * r * 1.25, r * 0.16, '#d8fff2', color);
+      }
+      glowDot(ctx, 0, 0, r * 0.38, '#d8fff2', color);
+      break;
+    case 'pilar': {
+      // Broad frame with a gravity hammer out front, rings orbiting the spine
+      ctx.fillStyle = color;
+      ctx.fillRect(r * 0.2, -r * 0.08, r * 0.9, r * 0.16);
+      roundRect(ctx, r * 0.95, -r * 0.45, r * 0.45, r * 0.9, r * 0.1);
+      body();
+      ctx.beginPath();
+      ctx.moveTo(r * 0.5, -r * 0.6);
+      ctx.lineTo(r * 0.5, r * 0.6);
+      ctx.lineTo(-r * 0.85, r * 0.9);
+      ctx.lineTo(-r * 0.85, -r * 0.9);
+      ctx.closePath();
+      body();
+      for (let k = 0; k < 2; k++) {
+        ctx.save();
+        ctx.rotate(time * (k ? -0.9 : 1.1));
+        ctx.beginPath();
+        ctx.ellipse(-r * 0.15, 0, r * 1.2, r * 0.45, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = `${color}77`;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.restore();
+      }
+      glowDot(ctx, -r * 0.15, 0, r * 0.4, '#e2e0ff', color);
+      break;
+    }
     default:
       // Vex: a caped arrow pointing where she faces
       ctx.beginPath();

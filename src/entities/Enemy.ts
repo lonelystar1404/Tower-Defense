@@ -3,6 +3,7 @@ import type { EnemyDef, MovementType } from '../data/enemies';
 import type { Path } from '../systems/path';
 import { newStatus, speedMultiplier, type StatusState } from '../systems/status';
 import type { Targetable } from '../systems/targeting';
+import type { Hero } from './Hero';
 
 let nextId = 1;
 
@@ -51,6 +52,13 @@ export class Enemy implements Targetable {
   surgeMult = 1;
   /** Burrowers: seconds left underground (untargetable and immune while > 0). */
   burrowTime = 0;
+  /** Reprogrammed (Glitch): walks backward along its route while > 0. */
+  reverseTime = 0;
+  /** Logic Bomb (Glitch): explodes for `burstDamage` within `burstRadius` if it dies while `burstTime` > 0. */
+  burstTime = 0;
+  burstDamage = 0;
+  burstRadius = 0;
+  burstOwner: Hero | null = null;
   /** Bosses: how many phases have started so far, and the speed boost from enraging. */
   phase = 0;
   speedMult = 1;
@@ -88,9 +96,9 @@ export class Enemy implements Targetable {
     return Math.min(amount, before);
   }
 
-  /** Armor right now: the type's plus any Warden bonus. */
+  /** Armor right now: the type's plus any Warden bonus, minus Heavy Footing (never below 0). */
   get armor(): number {
-    return this.def.armor + this.bonusArmor;
+    return Math.max(0, this.def.armor + this.bonusArmor);
   }
 
   get burrowed(): boolean {

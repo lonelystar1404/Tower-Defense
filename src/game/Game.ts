@@ -10,7 +10,7 @@ import { Enemy } from '../entities/Enemy';
 import { Projectile } from '../entities/Projectile';
 import { Tower } from '../entities/Tower';
 import { Hero } from '../entities/Hero';
-import { HEROES, HERO_LEVELS, MAX_HERO_LEVEL, effectLength, type HeroId } from '../data/hero';
+import { HEROES, HERO_LEVELS, MAX_HERO_LEVEL, effectLength, scaleEffect, type HeroId } from '../data/hero';
 import { COMBO_NUMBERS, COMBOS, type ComboId } from '../data/combos';
 import { battlefieldMultiplier, computeDamage, elementMultiplier } from '../systems/damage';
 import { applyHit } from '../systems/combat';
@@ -57,6 +57,8 @@ export type GameSound =
   | `shot-${WeaponId}`
   | 'blast' | 'kill' | 'leak' | 'crit' | 'freeze' | 'stun'
   | 'build' | 'upgrade' | 'sell'
+  /** A hero learns or ranks up a skill */
+  | 'learn'
   /** An upgrade starting (it finishes with 'upgrade') */
   | 'upgrade-start'
   /** Loans between players: gold lent, and a loan fully repaid */
@@ -100,9 +102,46 @@ export interface Zone {
   dps?: number;
   armorBreak?: number;
   stripShields?: boolean;
+  /** Denial of Service: enemies inside can't use their abilities. */
+  suppress?: boolean;
+  /** Time Dilation: towers inside fire this much faster. */
+  towerRate?: number;
+  /** Small passive zones (Scorched Earth) are drawn without a clock. */
+  quiet?: boolean;
   /** Hero that made it (its element and kill gold). */
   owner: Hero;
 }
+
+/** A hero mine on the road (Proximity Mines): blows when a ground enemy steps on it. */
+export interface Mine {
+  x: number;
+  y: number;
+  ttl: number;
+  maxTtl: number;
+  damage: number;
+  radius: number;
+  /** Ability that placed it (its impact sound). */
+  ability: string;
+  owner: Hero;
+}
+
+/** A vine latched onto an enemy (Strangler Vine): damage that ramps up, maybe holding it. */
+export interface Tether {
+  /** The enemy held now (null between targets). */
+  target: Enemy | null;
+  ttl: number;
+  maxTtl: number;
+  /** Seconds latched so far (drives the ramp). */
+  elapsed: number;
+  range: number;
+  dps: number;
+  ramp: number;
+  hold: boolean;
+  owner: Hero;
+}
+
+/** Tiles from a mine within which a ground enemy sets it off. */
+const MINE_TRIGGER = 0.45;
 
 /** A delayed hero strike counting down to impact (Orbital Strike). */
 export interface Strike {
@@ -116,6 +155,8 @@ export interface Strike {
   /** Ability that called it (its impact sound). */
   ability: string;
   owner: Hero;
+  /** Sticky Bomb: rides on this enemy until it goes off (stays put if the enemy dies). */
+  follow?: Enemy | null;
 }
 
 /** A temporary turret placed by a hero (Echo's drones). */
@@ -224,9 +265,9 @@ export interface GameSnapshot {
   battlefield: BattlefieldId;
   locked: ComboKey[];
   towers: { col: number; row: number; weapon: WeaponId; element: ElementId; level: number; spent: number; priority: TargetPriority; owner?: number; upgrading?: [number, number] }[];
-  hero?: { x: number; y: number; level: number; kills: number };
+  hero?: { x: number; y: number; level: number; kills: number; ranks?: number[] };
   /** Multiplayer runs: every player (gold, hero); `gold`/`hero` above are player 1's. */
-  players?: { name: string; memberId?: string; gold: number; heroId?: HeroId; hero?: { x: number; y: number; level: number; kills: number } }[];
+  players?: { name: string; memberId?: string; gold: number; heroId?: HeroId; hero?: { x: number; y: number; level: number; kills: number; ranks?: number[] } }[];
   stats: GameStats;
   /** Party runs: unpaid loans between players. */
   loans?: { borrower: number; lender: number; owed: number; total: number }[];
@@ -253,6 +294,9 @@ export interface LiveState {
   summons: (Omit<Summon, 'owner'> & { owner: number })[];
   /** Loan requests waiting for an answer (missing in older checkpoints). */
   loanRequests?: LoanRequest[];
+  /** Mines on the road and running vines (missing in older checkpoints). */
+  mines?: (Omit<Mine, 'owner'> & { owner: number })[];
+  tethers?: (Omit<Tether, 'owner' | 'target'> & { owner: number })[];
 }
 
 /** Points earned so far (see SCORE); lives lost are subtracted in `Game.scoreTotal`. */
@@ -322,6 +366,8 @@ export class Game {
   zones: Zone[] = [];
   strikes: Strike[] = [];
   summons: Summon[] = [];
+  mines: Mine[] = [];
+  tethers: Tether[] = [];
   /** Damage, kills, and combos by source this game. */
   stats: GameStats = {
     damage: { hero: 0, towers: 0, status: 0, byWeapon: {}, byElement: {} },
@@ -405,7 +451,10 @@ export class Game {
       const player = game.players[i];
       if (!player) return;
       player.gold = p.gold;
-      if (player.hero && p.hero) Object.assign(player.hero, { x: p.hero.x, targetX: p.hero.x, y: p.hero.y, targetY: p.hero.y, level: p.hero.level, kills: p.hero.kills });
+      if (player.hero && p.hero) {
+        Object.assign(player.hero, { x: p.hero.x, targetX: p.hero.x, y: p.hero.y, targetY: p.hero.y, level: p.hero.level, kills: p.hero.kills });
+        game.restoreRanks(i, p.hero.ranks);
+      }
     });
     game.lives = snap.lives;
     game.time = snap.time;
@@ -426,6 +475,7 @@ export class Game {
       game.hero.y = game.hero.targetY = snap.hero.y;
       game.hero.level = snap.hero.level;
       game.hero.kills = snap.hero.kills;
+      game.restoreRanks(0, snap.hero.ranks);
     }
     game.stats = structuredClone(snap.stats);
     game.loans = (snap.loans ?? []).filter((l) => game.players[l.borrower] && game.players[l.lender]).map((l) => ({ ...l, timer: 0 }));
@@ -454,12 +504,12 @@ export class Game {
         col: t.col, row: t.row, weapon: t.weapon, element: t.element, level: t.level, spent: t.spent, priority: t.priority, owner: t.owner,
         upgrading: t.upgradeTime > 0 ? [t.upgradeTime, t.upgradeTotal] : undefined,
       })),
-      hero: hero ? { x: hero.x, y: hero.y, level: hero.level, kills: hero.kills } : undefined,
+      hero: hero ? { x: hero.x, y: hero.y, level: hero.level, kills: hero.kills, ranks: [...hero.ranks] } : undefined,
       players:
         this.players.length > 1
           ? this.players.map((p) => ({
               name: p.name, memberId: p.memberId, gold: p.gold, heroId: p.hero?.def.id,
-              hero: p.hero ? { x: p.hero.x, y: p.hero.y, level: p.hero.level, kills: p.hero.kills } : undefined,
+              hero: p.hero ? { x: p.hero.x, y: p.hero.y, level: p.hero.level, kills: p.hero.kills, ranks: [...p.hero.ranks] } : undefined,
             }))
           : undefined,
       stats: structuredClone(this.stats),
@@ -482,10 +532,13 @@ export class Game {
         attackCooldown: h.attackCooldown, attacks: h.attacks, buffTime: h.buffTime, buffAttackSpeed: h.buffAttackSpeed, buffDamage: h.buffDamage,
       })),
       zones: this.zones.map((z) => ({ ...z, owner: ownerOf(z.owner) })),
-      strikes: this.strikes.map((z) => ({ ...z, owner: ownerOf(z.owner) })),
+      // A sticky bomb's enemy is gone by the end of a wave; it isn't saved.
+      strikes: this.strikes.map(({ follow: _, ...z }) => ({ ...z, owner: ownerOf(z.owner) })),
       // `angle` is drawing only (and atan2 differs between engines), so it's left out.
       summons: this.summons.map((z) => ({ ...z, angle: 0, owner: ownerOf(z.owner) })),
       loanRequests: this.loanRequests.map((r) => ({ ...r })),
+      mines: this.mines.map((m) => ({ ...m, owner: ownerOf(m.owner) })),
+      tethers: this.tethers.map(({ target: _, ...v }) => ({ ...v, owner: ownerOf(v.owner) })),
     };
   }
 
@@ -508,6 +561,8 @@ export class Game {
     const hero = (p: number) => this.players[p]?.hero ?? this.heroes[0];
     this.zones = live.zones.map((z) => ({ ...z, owner: hero(z.owner) }));
     this.strikes = live.strikes.map((z) => ({ ...z, owner: hero(z.owner) }));
+    this.mines = (live.mines ?? []).map((m) => ({ ...m, owner: hero(m.owner) }));
+    this.tethers = (live.tethers ?? []).map((v) => ({ ...v, target: null, owner: hero(v.owner) }));
     this.summons = live.summons.map((z) => ({ ...z, owner: hero(z.owner) }));
   }
 
@@ -669,6 +724,8 @@ export class Game {
     this.moveEnemies(dt);
     if (this.over) return;
     this.updateZones(dt);
+    this.updateMines(dt);
+    this.updateTethers(dt);
     this.updateTowers(dt);
     this.updateHero(dt);
     this.updateSummons(dt);
@@ -696,6 +753,14 @@ export class Game {
       if (e.def.phases && e.alive) this.updateBoss(e);
       const ability = e.def.ability;
       if (!ability || !e.alive) continue;
+      // Denial of Service: no abilities while inside (no auras either); hidden ones are exposed and burrowed ones surface.
+      if (this.zones.length > 0 && ability.kind !== 'mirror' && this.suppressed(e)) {
+        if (ability.kind === 'stealth' || ability.kind === 'burrow') {
+          e.hidden = false;
+          e.burrowTime = 0;
+        }
+        continue;
+      }
       switch (ability.kind) {
         case 'stealth':
           e.hidden = !this.towers.some((t) => sq((t.x - e.x)) + sq((t.y - e.y)) <= sq(ability.revealRange));
@@ -789,6 +854,12 @@ export class Game {
           break;
       }
     }
+    // Heavy Footing: enemies near the hero lose armor (on top of any Warden bonus; never below 0).
+    for (const hero of this.heroes) {
+      const p = hero.def.passive?.effect;
+      if (p?.kind !== 'armor-aura') continue;
+      for (const e of this.heroTargetsWithin(hero.x, hero.y, p.radius)) e.bonusArmor -= p.armor;
+    }
   }
 
   /** Starts every boss phase whose HP threshold has been reached (several at once after a big hit). */
@@ -865,6 +936,7 @@ export class Game {
     for (const e of this.enemies) {
       if (!e.alive) continue;
       e.markTime = Math.max(0, e.markTime - dt);
+      e.burstTime = Math.max(0, e.burstTime - dt);
       const dot = tickStatus(e.status, dt);
       if (dot > 0) {
         this.track('damage', STATUS_SOURCE, e.takeDamage(dot));
@@ -873,7 +945,11 @@ export class Game {
           continue;
         }
       }
-      e.distance += e.speed * dt;
+      // Reprogrammed enemies walk backward (never past their start).
+      if (e.reverseTime > 0) {
+        e.reverseTime = Math.max(0, e.reverseTime - dt);
+        e.distance = Math.max(0, e.distance - e.speed * dt);
+      } else e.distance += e.speed * dt;
       const p = e.route.pointAt(e.distance);
       const dx = p.x - e.x;
       const dy = p.y - e.y;
@@ -1060,6 +1136,8 @@ export class Game {
       const p = hero.def.passive?.effect;
       if (p?.kind === 'tower-rate-aura' && sq((tower.x - hero.x)) + sq((tower.y - hero.y)) <= sq(p.radius)) mult *= 1 + p.rate;
     }
+    // Time Dilation: towers inside the field fire faster.
+    for (const z of this.zones) if (z.towerRate && sq(tower.x - z.x) + sq(tower.y - z.y) <= sq(z.radius)) mult *= z.towerRate;
     return mult;
   }
 
@@ -1226,7 +1304,37 @@ export class Game {
     hero.targetY = Math.min(Math.max(y, 0.3), this.level.rows - 0.3);
   }
 
-  /** Whether the ability in `slot` can be used right now (unlocked and off cooldown), ignoring aim. */
+  /** Spends a skill point: learns or ranks up `slot` for `player`'s hero (see SKILLS). */
+  learnSkill(slot: number, player = 0): boolean {
+    const hero = this.players[player]?.hero;
+    if (!hero || this.over || slot < 0 || slot > 3 || !hero.canLearn(slot)) return false;
+    hero.ranks[slot]++;
+    this.effects.push({ kind: 'pulse', x: hero.x, y: hero.y, radius: 0.9, ttl: 0.45, maxTtl: 0.45, color: hero.def.color });
+    this.sound('learn');
+    return true;
+  }
+
+  /**
+   * A default skill build (bots, and old saves without ranks): the ultimate as soon as it's
+   * allowed, otherwise the lowest-ranked of Z X C (Z first on ties). Returns whether it learned.
+   */
+  learnNext(player = 0): boolean {
+    const hero = this.players[player]?.hero;
+    if (!hero || hero.skillPoints <= 0) return false;
+    if (hero.canLearn(3)) return this.learnSkill(3, player);
+    const order = [0, 1, 2].filter((s) => hero.canLearn(s)).sort((a, b) => hero.ranks[a] - hero.ranks[b] || a - b);
+    return order.length > 0 && this.learnSkill(order[0], player);
+  }
+
+  /** Restores saved ranks; saves from before skill points get the default build. */
+  restoreRanks(player: number, ranks: number[] | undefined): void {
+    const hero = this.players[player]?.hero;
+    if (!hero) return;
+    if (ranks) ranks.forEach((r, i) => (hero.ranks[i] = r));
+    else while (this.learnNext(player));
+  }
+
+  /** Whether the ability in `slot` can be used right now (learned and off cooldown), ignoring aim. */
   heroAbilityReady(slot: number, player = 0): boolean {
     const hero = this.players[player]?.hero;
     return !!hero && !this.over && hero.isUnlocked(slot) && hero.cooldowns[slot] <= 0;
@@ -1244,13 +1352,24 @@ export class Game {
     }
     const color = hero.def.color;
     const m = hero.damageMult;
-    const eff = def.effect;
+    // Lower ranks are weaker versions of the same ability (see SKILLS).
+    const eff = scaleEffect(def.effect, hero.rankPower(slot));
     switch (eff.kind) {
       case 'blast':
         for (const e of this.heroTargetsWithin(x, y, eff.radius)) {
           if (eff.stripShields) e.shield = 0;
           if (eff.stun) e.status.stunTime = Math.max(e.status.stunTime, eff.stun);
           this.heroDamage(e, eff.damage * m, hero);
+        }
+        // Seed Bomb, Upheaval: a zone left behind. Flash Freeze: the frozen area shatters later.
+        if (eff.zone) {
+          this.zones.push({
+            x, y, radius: eff.radius, ttl: eff.zone.duration, maxTtl: eff.zone.duration, color,
+            slow: eff.zone.slow, dps: eff.zone.dps ? eff.zone.dps * m : undefined, owner: hero,
+          });
+        }
+        if (eff.shatter) {
+          this.strikes.push({ x, y, radius: eff.radius, damage: eff.shatter.damage * m, delay: eff.shatter.delay, maxDelay: eff.shatter.delay, ability: def.id, owner: hero });
         }
         this.effects.push({ kind: 'pulse', x, y, radius: eff.radius, ttl: 0.5, maxTtl: 0.5, color });
         if (eff.stun) this.effects.push({ kind: 'shake', x: 0, y: 0, ttl: 0.15, maxTtl: 0.15, color: '' });
@@ -1259,7 +1378,8 @@ export class Game {
       case 'zone':
         this.zones.push({
           x, y, radius: eff.radius, ttl: eff.duration, maxTtl: eff.duration, color,
-          slow: eff.slow, dps: eff.dps ? eff.dps * m : undefined, armorBreak: eff.armorBreak, stripShields: eff.stripShields, owner: hero,
+          slow: eff.slow, dps: eff.dps ? eff.dps * m : undefined, armorBreak: eff.armorBreak, stripShields: eff.stripShields,
+          suppress: eff.suppress, towerRate: eff.towerRate, owner: hero,
         });
         break;
       case 'strike':
@@ -1291,7 +1411,9 @@ export class Game {
         for (const e of this.enemies) {
           if (!e.alive || e.def.ability?.kind === 'mirror') continue;
           const t = Math.max(0, Math.min(eff.length, (e.x - hero.x) * dx + (e.y - hero.y) * dy));
-          if (dist(e.x - (hero.x + dx * t), e.y - (hero.y + dy * t)) <= eff.width) this.heroDamage(e, eff.damage * m, hero);
+          if (dist(e.x - (hero.x + dx * t), e.y - (hero.y + dy * t)) > eff.width) continue;
+          if (eff.stun) e.status.stunTime = Math.max(e.status.stunTime, eff.stun);
+          this.heroDamage(e, eff.damage * m, hero);
         }
         this.effects.push({
           kind: 'beam', x: hero.x, y: hero.y, points: [{ x: hero.x, y: hero.y }, { x: ex, y: ey }],
@@ -1303,6 +1425,13 @@ export class Game {
         for (const e of this.heroTargetsWithin(x, y, eff.radius)) {
           e.markTime = eff.duration;
           e.markAmp = eff.amp;
+          // Logic Bomb: if it dies while marked, it explodes.
+          if (eff.burst) {
+            e.burstTime = eff.duration;
+            e.burstDamage = eff.burst.damage * m;
+            e.burstRadius = eff.burst.radius;
+            e.burstOwner = hero;
+          }
         }
         this.effects.push({ kind: 'pulse', x, y, radius: eff.radius, ttl: 0.5, maxTtl: 0.5, color });
         break;
@@ -1352,6 +1481,11 @@ export class Game {
         for (const e of this.enemies) {
           if (!e.alive || e.def.ability?.kind === 'mirror') continue;
           e.status.stunTime = Math.max(e.status.stunTime, eff.duration);
+          // Absolute Zero: brittle afterwards (the stronger mark wins).
+          if (eff.amp && eff.ampTime) {
+            e.markAmp = e.markTime > 0 ? Math.max(e.markAmp, eff.amp) : eff.amp;
+            e.markTime = Math.max(e.markTime, eff.ampTime);
+          }
           this.heroDamage(e, eff.damage * m, hero);
         }
         this.effects.push({ kind: 'pulse', x: hero.x, y: hero.y, radius: 6, ttl: 0.8, maxTtl: 0.8, color });
@@ -1367,6 +1501,77 @@ export class Game {
           });
         });
         break;
+      case 'reverse': {
+        const hit = eff.radius === Infinity ? this.enemies.filter((e) => e.alive && e.def.ability?.kind !== 'mirror') : this.heroTargetsWithin(x, y, eff.radius);
+        for (const e of hit) {
+          // Bosses resist: they only stop for a moment.
+          if (isBoss(e.def)) e.status.stunTime = Math.max(e.status.stunTime, 0.3);
+          else e.reverseTime = Math.max(e.reverseTime, eff.duration);
+          this.heroDamage(e, eff.damage * m, hero);
+        }
+        if (eff.radius === Infinity) this.effects.push({ kind: 'pulse', x: hero.x, y: hero.y, radius: 6, ttl: 0.8, maxTtl: 0.8, color });
+        else this.effects.push({ kind: 'pulse', x, y, radius: eff.radius, ttl: 0.5, maxTtl: 0.5, color });
+        break;
+      }
+      case 'mines': {
+        const route = this.path;
+        const spots: number[] = [];
+        if (eff.global) {
+          // Spread from 15% to 95% of the road.
+          for (let i = 0; i < eff.count; i++) spots.push(route.length * (0.15 + (0.8 * (i + 0.5)) / eff.count));
+        } else {
+          const at = this.nearestRouteDistance(x, y);
+          for (let i = 0; i < eff.count; i++) spots.push(at + (i - (eff.count - 1) / 2) * eff.spacing);
+        }
+        for (const d of spots) {
+          const p = route.pointAt(Math.min(Math.max(d, 0.3), route.length - 0.3));
+          this.mines.push({ x: p.x, y: p.y, ttl: eff.duration, maxTtl: eff.duration, damage: eff.damage * m, radius: eff.radius, ability: def.id, owner: hero });
+        }
+        break;
+      }
+      case 'sticky': {
+        const target = this.heroTargetsWithin(x, y, 1.5).sort((a, b) => sq(a.x - x) + sq(a.y - y) - (sq(b.x - x) + sq(b.y - y)))[0];
+        this.strikes.push({
+          x: target?.x ?? x, y: target?.y ?? y, radius: eff.radius, damage: eff.damage * m, delay: eff.delay, maxDelay: eff.delay,
+          ability: def.id, owner: hero, follow: target ?? null,
+        });
+        break;
+      }
+      case 'barrage': {
+        // Along the hero's aim, centered on the spot.
+        const len = dist(x - hero.x, y - hero.y) || 1;
+        const dx = (x - hero.x) / len;
+        const dy = (y - hero.y) / len;
+        for (let i = 0; i < eff.count; i++) {
+          const o = (i - (eff.count - 1) / 2) * eff.spacing;
+          const delay = 0.4 + i * eff.interval;
+          this.strikes.push({ x: x + dx * o, y: y + dy * o, radius: eff.radius, damage: eff.damage * m, delay, maxDelay: delay, ability: def.id, owner: hero });
+        }
+        break;
+      }
+      case 'tether':
+        this.tethers.push({ target: null, ttl: eff.duration, maxTtl: eff.duration, elapsed: 0, range: eff.range, dps: eff.dps * m, ramp: eff.ramp, hold: eff.hold, owner: hero });
+        this.effects.push({ kind: 'pulse', x: hero.x, y: hero.y, radius: 0.8, ttl: 0.4, maxTtl: 0.4, color });
+        break;
+      case 'swap': {
+        const ground = this.enemies
+          .filter((e) => e.alive && e.movement === 'ground' && e.route === this.path && !isBoss(e.def) && e.def.ability?.kind !== 'mirror')
+          .sort((a, b) => b.distance - a.distance);
+        if (ground.length < 2) break;
+        const lead = ground[0];
+        const tail = ground[ground.length - 1];
+        [lead.distance, tail.distance] = [tail.distance, lead.distance];
+        for (const e of [lead, tail]) {
+          const p = e.route.pointAt(e.distance);
+          e.x = p.x;
+          e.y = p.y;
+          this.effects.push({ kind: 'pulse', x: e.x, y: e.y, radius: 0.8, ttl: 0.5, maxTtl: 0.5, color });
+          this.heroDamage(e, eff.damage * m, hero);
+        }
+        this.effects.push({ kind: 'beam', x: lead.x, y: lead.y, points: [{ x: lead.x, y: lead.y }, { x: tail.x, y: tail.y }], element: 'earth', ttl: 0.4, maxTtl: 0.4, color });
+        this.effects.push({ kind: 'shake', x: 0, y: 0, ttl: 0.2, maxTtl: 0.2, color: '' });
+        break;
+      }
       case 'repair': {
         const healed = Math.min(eff.lives, this.level.lives - this.lives);
         this.lives += healed;
@@ -1386,7 +1591,7 @@ export class Game {
         break;
     }
     this.sound(`ability:${def.id}`);
-    hero.cooldowns[slot] = def.cooldown * hero.cooldownMult;
+    hero.cooldowns[slot] = hero.cooldownFor(slot);
     hero.effects[slot] = hero.effectLengths[slot] = effectLength(eff);
     return true;
   }
@@ -1399,10 +1604,13 @@ export class Game {
     // Cooldowns stop while a Jammer is near; effect countdowns keep running.
     hero.jammed = this.enemies.some((e) => {
       const a = e.def.ability;
-      return e.alive && a?.kind === 'jam' && sq((e.x - hero.x)) + sq((e.y - hero.y)) <= sq(a.radius);
+      return e.alive && a?.kind === 'jam' && sq((e.x - hero.x)) + sq((e.y - hero.y)) <= sq(a.radius) && !this.suppressed(e);
     });
+    // Photosynthesis: cooldowns run faster while the hero stands still.
+    const still = hero.def.passive?.effect;
+    const recharge = still?.kind === 'still-recharge' && !hero.moving ? still.rate : 1;
     for (let i = 0; i < 4; i++) {
-      if (!hero.jammed) hero.cooldowns[i] = Math.max(0, hero.cooldowns[i] - dt);
+      if (!hero.jammed) hero.cooldowns[i] = Math.max(0, hero.cooldowns[i] - dt * recharge);
       hero.effects[i] = Math.max(0, hero.effects[i] - dt);
     }
     hero.buffTime = Math.max(0, hero.buffTime - dt);
@@ -1545,6 +1753,11 @@ export class Game {
     if (p.kind === 'element-hits') {
       applyElementEffect(enemy.status, hero.def.element, dmg, enemy.movement, this.rng, p.power);
     }
+    // Brittle: hit enemies take more damage from everything for a moment (the stronger mark wins).
+    if (p.kind === 'mark-on-hit') {
+      enemy.markAmp = enemy.markTime > 0 ? Math.max(enemy.markAmp, p.amp) : p.amp;
+      enemy.markTime = Math.max(enemy.markTime, p.duration);
+    }
   }
 
   /** Living enemies within `radius` of (x, y) that the hero can affect (not Mirrors). */
@@ -1552,6 +1765,65 @@ export class Game {
     return this.enemies.filter(
       (e) => e.alive && e.def.ability?.kind !== 'mirror' && sq((e.x - x)) + sq((e.y - y)) <= radius * radius,
     );
+  }
+
+  /** How far along the ground route its point nearest (x, y) is (sampled every 0.1 tile). */
+  private nearestRouteDistance(x: number, y: number): number {
+    let best = 0;
+    let bestD = Infinity;
+    for (let d = 0; d <= this.path.length; d += 0.1) {
+      const p = this.path.pointAt(d);
+      const dd = sq(p.x - x) + sq(p.y - y);
+      if (dd < bestD) {
+        bestD = dd;
+        best = d;
+      }
+    }
+    return best;
+  }
+
+  /** Mines blow when a ground enemy on the surface steps close; unused ones fade out. */
+  private updateMines(dt: number): void {
+    if (this.mines.length === 0) return;
+    for (const mine of this.mines) {
+      mine.ttl -= dt;
+      const stepped = this.enemies.some(
+        (e) => e.alive && e.movement === 'ground' && !e.burrowed && sq(e.x - mine.x) + sq(e.y - mine.y) <= sq(MINE_TRIGGER),
+      );
+      if (!stepped) continue;
+      mine.ttl = 0;
+      for (const e of this.heroTargetsWithin(mine.x, mine.y, mine.radius)) this.heroDamage(e, mine.damage, mine.owner);
+      this.effects.push({ kind: 'blast', x: mine.x, y: mine.y, radius: mine.radius, element: 'fire', ttl: 0.4, maxTtl: 0.4, color: '' });
+      this.sound(`impact:${mine.ability}`);
+    }
+    this.mines = this.mines.filter((mine) => mine.ttl > 0);
+  }
+
+  /** Vines: hold on to the toughest enemy in reach, squeezing harder each second. */
+  private updateTethers(dt: number): void {
+    if (this.tethers.length === 0) return;
+    for (const v of this.tethers) {
+      v.ttl -= dt;
+      const hero = v.owner;
+      const t0 = v.target;
+      if (!t0 || !t0.alive || t0.burrowed || sq(t0.x - hero.x) + sq(t0.y - hero.y) > sq(v.range + 1)) {
+        v.target = this.heroTargetsWithin(hero.x, hero.y, v.range).filter((e) => !e.burrowed).sort((a, b) => b.hp - a.hp)[0] ?? null; // stable: ties keep list order (same on every device)
+      }
+      const e = v.target;
+      if (!e) continue;
+      v.elapsed += dt;
+      if (v.hold && e.movement === 'ground' && !isBoss(e.def)) e.status.rootTime = Math.max(e.status.rootTime, 0.1);
+      e.lastHitBy = hero.player;
+      const source: DamageSource = { kind: 'hero', player: hero.player };
+      this.track('damage', source, e.takeDamage(v.dps * (1 + v.ramp * v.elapsed) * dt * this.heroElementMult(e, hero)));
+      if (!e.alive) this.reward(e, source);
+    }
+    this.tethers = this.tethers.filter((v) => v.ttl > 0);
+  }
+
+  /** Inside a Denial of Service zone: the enemy's abilities are off. */
+  private suppressed(e: Enemy): boolean {
+    return this.zones.some((z) => z.suppress && sq(e.x - z.x) + sq(e.y - z.y) <= sq(z.radius));
   }
 
   /** Hero zones: slow, burn, and/or strip armor from everything inside (except Mirrors). */
@@ -1579,6 +1851,11 @@ export class Game {
   private updateStrikes(dt: number): void {
     for (const s of this.strikes) {
       s.delay -= dt;
+      // Sticky Bomb rides its enemy (and stays where it fell if the enemy dies first).
+      if (s.follow?.alive) {
+        s.x = s.follow.x;
+        s.y = s.follow.y;
+      }
       if (s.delay > 0) continue;
       for (const e of this.heroTargetsWithin(s.x, s.y, s.radius)) this.heroDamage(e, s.damage, s.owner);
       this.effects.push({ kind: 'blast', x: s.x, y: s.y, radius: s.radius, element: 'fire', ttl: 0.6, maxTtl: 0.6, color: '' });
@@ -1616,6 +1893,20 @@ export class Game {
       this.effects.push({ kind: 'blast', x: enemy.x, y: enemy.y, radius: burst.radius, element: 'fire', ttl: 0.3, maxTtl: 0.3, color: '' });
       this.sound('combustion');
       this.bursting = false;
+    }
+    // Backdoor: kills cut the hero's cooldowns. Scorched Earth: kills leave burning ground.
+    const kp = killer?.def.passive?.effect;
+    if (killer && kp?.kind === 'cooldown-on-kill') for (let i = 0; i < 4; i++) killer.cooldowns[i] = Math.max(0, killer.cooldowns[i] - kp.seconds);
+    if (killer && kp?.kind === 'death-zone') {
+      this.zones.push({ x: enemy.x, y: enemy.y, radius: kp.radius, ttl: kp.duration, maxTtl: kp.duration, color: killer.def.color, dps: kp.dps * killer.damageMult, owner: killer, quiet: true });
+    }
+    // Logic Bomb: a marked enemy explodes when it dies (marked ones it kills explode in turn).
+    if (enemy.burstTime > 0 && enemy.burstOwner) {
+      const owner = enemy.burstOwner;
+      enemy.burstTime = 0;
+      for (const e of this.heroTargetsWithin(enemy.x, enemy.y, enemy.burstRadius)) if (e !== enemy) this.heroDamage(e, enemy.burstDamage, owner);
+      this.effects.push({ kind: 'blast', x: enemy.x, y: enemy.y, radius: enemy.burstRadius, element: 'metal', ttl: 0.35, maxTtl: 0.35, color: '' });
+      this.sound('combustion');
     }
     this.track('kills', source);
     this.sound('kill');

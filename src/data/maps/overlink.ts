@@ -219,12 +219,12 @@ export const OVERLINK: LevelDef = {
       ],
       bonus: 166, rewardMult: 0.3,
     },
-    // 22. armada
+    // 22. armada (lighter since skill points: it was an all-or-nothing air wave for pairs)
     {
       groups: [
-        { enemy: 'carrier', count: 6, interval: 3, hpMult: 5.55 },
-        { enemy: 'wyvern', count: 16, interval: 1, delay: 2, hpMult: 5.55, element: 'water' },
-        { enemy: 'drone', count: 40, interval: 0.25, delay: 4, hpMult: 5.55, element: 'wood' },
+        { enemy: 'carrier', count: 4, interval: 3.5, hpMult: 5.55 },
+        { enemy: 'wyvern', count: 14, interval: 1.1, delay: 2, hpMult: 5.55, element: 'water' },
+        { enemy: 'drone', count: 34, interval: 0.25, delay: 4, hpMult: 5.55, element: 'wood' },
       ],
       bonus: 172, rewardMult: 0.3,
     },

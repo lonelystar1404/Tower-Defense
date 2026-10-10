@@ -54,6 +54,24 @@ export class Sound {
     if (this.ctx.state === 'suspended') void this.ctx.resume();
   }
 
+  /**
+   * Says `text` out loud with the device's speech voice (lower and a little slow, for a
+   * cyber-announcer feel), in `lang` (a BCP 47 tag). Silent when muted or if the device has no
+   * speech. Falls back to the click sound then.
+   */
+  speak(text: string, lang: string): void {
+    if (this.muted) return;
+    const synth = typeof window !== 'undefined' ? window.speechSynthesis : undefined;
+    if (!synth || typeof SpeechSynthesisUtterance === 'undefined') return this.play('click');
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = lang;
+    u.pitch = 0.8;
+    u.rate = 0.95;
+    u.volume = 0.9;
+    synth.speak(u);
+  }
+
   setMuted(muted: boolean): void {
     this.muted = muted;
     try {
@@ -180,6 +198,8 @@ const RECIPES: Record<Exclude<SoundId, `ability:${string}` | `impact:${string}`>
   // Economy
   build: (s, t) => s.notes(t, 'triangle', [440, 660], 0.07, 0.12, 0.14),
   upgrade: (s, t) => s.notes(t, 'triangle', [523, 659, 784, 1047], 0.06, 0.14, 0.13),
+  // A hero learns or ranks up a skill: a bright two-note chime
+  learn: (s, t) => s.notes(t, 'sine', [784, 1175], 0.07, 0.22, 0.11),
   // An upgrade starting: a servo whir rising, then a lock-in click
   'upgrade-start': (s, t) => {
     s.tone(t, 'sawtooth', 180, 520, 0.4, 0.06, 1400);
@@ -492,5 +512,106 @@ export const HERO_SOUNDS: Record<string, Recipe> = {
     s.noise(t, 0.9, 'lowpass', 3500, 90, 0.6);
     s.tone(t, 'sawtooth', 320, 55, 0.6, 0.15, 1800);
     s.noise(t + 0.1, 0.8, 'bandpass', 700, 1500, 0.2, 1.2); // flames after
+  },
+
+  // Glitch: hacker, metal
+  'ability:linh-reprogram': (s, t) => {
+    s.notes(t, 'square', [1500, 600, 1200, 400, 900], 0.035, 0.03, 0.05); // data chirps
+    s.tone(t + 0.18, 'sawtooth', 700, 120, 0.35, 0.09, 1800); // tape rewinding
+  },
+  'ability:linh-dos': (s, t) => {
+    s.noise(t, 0.7, 'bandpass', 2400, 900, 0.18, 3); // static flood
+    s.notes(t + 0.05, 'square', [220, 220, 220, 220], 0.09, 0.04, 0.05); // busy signal
+  },
+  'ability:linh-logicbomb': (s, t) => {
+    s.notes(t, 'triangle', [880, 1320, 880, 1320], 0.06, 0.05, 0.06); // arming beeps
+    s.tone(t + 0.26, 'sine', 300, 90, 0.2, 0.12);
+  },
+  'ability:linh-zeroday': (s, t) => {
+    s.notes(t, 'square', [2000, 1000, 1600, 500, 1200, 250], 0.05, 0.04, 0.06); // cascade of errors
+    s.tone(t + 0.3, 'sawtooth', 900, 60, 0.9, 0.14, 1500); // the whole system winding back
+    s.noise(t + 0.3, 0.6, 'lowpass', 1600, 120, 0.2);
+  },
+  // Fuse: demolitions, fire
+  'ability:baraka-mines': (s, t) => s.notes(t, 'square', [600, 900, 1200], 0.09, 0.05, 0.06), // three arming clicks
+  'impact:baraka-mines': (s, t) => {
+    s.noise(t, 0.35, 'lowpass', 2400, 150, 0.45);
+    s.tone(t, 'sine', 140, 45, 0.3, 0.3);
+  },
+  'ability:baraka-sticky': (s, t) => {
+    s.noise(t, 0.08, 'highpass', 2000, 2000, 0.2); // splat
+    s.notes(t + 0.12, 'square', [1400, 1400, 1400], 0.4, 0.04, 0.05); // ticking
+  },
+  'impact:baraka-sticky': (s, t) => {
+    s.noise(t, 0.6, 'lowpass', 3000, 100, 0.55);
+    s.tone(t, 'sawtooth', 220, 50, 0.4, 0.14, 1500);
+  },
+  'ability:baraka-carpet': (s, t) => s.tone(t, 'sine', 1800, 700, 0.4, 0.06), // incoming whistle
+  'impact:baraka-carpet': (s, t) => {
+    s.noise(t, 0.3, 'lowpass', 2200, 140, 0.35);
+    s.tone(t, 'sine', 160, 50, 0.25, 0.22);
+  },
+  'ability:baraka-demolition': (s, t) => {
+    s.notes(t, 'square', [500, 700, 900, 1100, 1300, 1500, 1700, 1900], 0.06, 0.04, 0.05); // eight charges armed
+    s.tone(t + 0.5, 'sine', 80, 80, 0.4, 0.15); // low hum of the wiring
+  },
+  'impact:baraka-demolition': (s, t) => {
+    s.noise(t, 0.8, 'lowpass', 2800, 70, 0.6);
+    s.tone(t, 'sawtooth', 180, 40, 0.6, 0.16, 1200);
+  },
+  // Stasis: time and ice, water
+  'ability:oksana-wall': (s, t) => {
+    s.noise(t, 0.4, 'highpass', 5000, 2500, 0.18); // ice cracking up
+    s.tone(t, 'triangle', 300, 900, 0.3, 0.08);
+  },
+  'ability:oksana-flash': (s, t) => {
+    s.tone(t, 'sine', 3000, 3000, 0.5, 0.05); // glassy ring
+    s.noise(t, 0.25, 'highpass', 7000, 4000, 0.2);
+  },
+  'impact:oksana-flash': (s, t) => {
+    s.noise(t, 0.4, 'highpass', 6000, 2500, 0.4); // shatter
+    s.notes(t + 0.02, 'triangle', [2600, 2100, 3100, 1800], 0.03, 0.06, 0.06); // shards
+  },
+  'ability:oksana-dilation': (s, t) => {
+    s.tone(t, 'sine', 660, 330, 0.9, 0.09); // time stretching down
+    s.notes(t, 'triangle', [880, 880, 880], 0.3, 0.05, 0.05); // slow clock ticks
+  },
+  'ability:oksana-zero': (s, t) => {
+    s.tone(t, 'sine', 1200, 200, 1.2, 0.12);
+    s.noise(t, 1.0, 'highpass', 8000, 3000, 0.25); // frost spreading
+    s.notes(t + 0.6, 'triangle', [3200, 2400, 1600], 0.08, 0.1, 0.05);
+  },
+  // Canopy: bio-network, wood
+  'ability:killa-vine': (s, t) => {
+    s.tone(t, 'triangle', 140, 260, 0.4, 0.1); // vine whipping out
+    s.noise(t + 0.1, 0.35, 'bandpass', 400, 700, 0.18, 2); // creak
+  },
+  'ability:killa-seed': (s, t) => {
+    s.tone(t, 'sine', 400, 120, 0.2, 0.2); // pop
+    s.noise(t + 0.1, 0.5, 'bandpass', 1200, 500, 0.15, 1.5); // rustling growth
+  },
+  'ability:killa-symbiosis': (s, t) => s.notes(t, 'sine', [392, 523, 659, 784], 0.08, 0.3, 0.07), // warm rising chord
+  'ability:killa-bloom': (s, t) => {
+    s.notes(t, 'sine', [262, 330, 392, 523, 659, 784, 1047], 0.07, 0.6, 0.06);
+    s.noise(t + 0.2, 0.8, 'bandpass', 900, 2000, 0.1, 1.5); // leaves unfurling
+  },
+  // Atlas: gravity and stone, earth
+  'ability:pilar-fault': (s, t) => {
+    s.noise(t, 0.5, 'lowpass', 900, 80, 0.5); // ground cracking open
+    s.tone(t, 'sawtooth', 90, 40, 0.4, 0.15, 500);
+  },
+  'ability:pilar-drift': (s, t) => {
+    s.tone(t, 'sine', 120, 480, 0.45, 0.15); // lift
+    s.tone(t + 0.45, 'sine', 480, 90, 0.4, 0.15); // set down
+    s.noise(t + 0.8, 0.3, 'lowpass', 600, 80, 0.3);
+  },
+  'ability:pilar-anchor': (s, t) => {
+    s.tone(t, 'sine', 60, 40, 0.9, 0.3); // gravity hum
+    s.tone(t, 'triangle', 240, 120, 0.6, 0.06);
+  },
+  'ability:pilar-upheaval': (s, t) => {
+    s.noise(t, 1.2, 'lowpass', 700, 50, 0.6); // the mountain rising
+    s.tone(t, 'sawtooth', 50, 120, 0.8, 0.2, 400);
+    s.noise(t + 0.8, 0.4, 'bandpass', 1500, 400, 0.2, 1.5); // rocks settling
   },
 };

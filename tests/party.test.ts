@@ -99,6 +99,8 @@ describe('Party (multiplayer)', () => {
     g.moveHero(9, 1, 1);
     expect(g.players[1].hero!.targetX).toBe(9);
     expect(g.players[0].hero!.targetX).not.toBe(9);
+    expect(g.learnSkill(0, 1)).toBe(true); // each hero spends its own skill points
+    expect(g.players[0].hero!.ranks[0]).toBe(0);
     expect(g.castHero(0, 0, 0, 1)).toBe(true); // Brick's Ground Slam (self)
     expect(g.players[1].hero!.cooldowns[0]).toBeGreaterThan(0);
     expect(g.players[0].hero!.cooldowns[0]).toBe(0);
