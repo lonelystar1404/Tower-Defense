@@ -60,12 +60,12 @@ export function initTooltips(): void {
   });
   // Content under the pointer can be rebuilt (language change, new hero): don't leave a stale tip.
   document.addEventListener('pointerdown', hide);
-  // Touch has no hover: tapping something that isn't a button (a passive tile, an ability in a
-  // list, also inside a hero card) shows its tip for a few seconds. Buttons keep doing what they do.
+  // Touch has no hover: tapping something that isn't a button (a passive tile) shows its tip for
+  // a few seconds. Buttons keep doing what they do.
   document.addEventListener('pointerup', (ev) => {
     if (ev.pointerType === 'mouse') return;
     const target = (ev.target as HTMLElement).closest<HTMLElement>('[data-tip]');
-    if (!target || target.closest('button:not(.hero-card)')) return;
+    if (!target || target.closest('button')) return;
     current = target;
     show(target);
     hideTimer = window.setTimeout(hide, TOUCH_TIP_MS);

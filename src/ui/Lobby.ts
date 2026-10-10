@@ -27,8 +27,9 @@ const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', 
 
 /**
  * Multiplayer screens: first the choice (online room or this device), then the room lobby in a
- * "champion select" layout: the five player cards in a strip across the top, the hero grid with
- * element filters and the tapped hero's details below, and the chat and READY along the bottom.
+ * "champion select" layout: on the left the five player cards, the element row, and the hero
+ * grid with element filters; on the right, from the top of the player cards down, the details of
+ * the hero hovered or tapped; the chat and READY along the bottom.
  * When everyone has picked and is ready, a short countdown runs and the game starts. On phones the
  * details open as a pop-up. Plain view: main.ts drives it with the room state.
  */
@@ -93,6 +94,15 @@ export class Lobby {
         this.viewed = id;
         if (hero.classList.contains('taken') || this.amReady()) this.updateRoom();
         else this.actions.pickHero(id);
+      }
+    });
+    // Hovering a hero (mouse) shows its details on the right, like hero select.
+    root.addEventListener('pointerover', (ev) => {
+      if (ev.pointerType !== 'mouse') return;
+      const id = (ev.target as HTMLElement).closest<HTMLElement>('[data-lb-hero]')?.dataset.lbHero as HeroId | undefined;
+      if (id && id !== this.viewed) {
+        this.viewed = id;
+        this.updateRoom();
       }
     });
     root.addEventListener('keydown', (ev) => {
@@ -230,14 +240,14 @@ export class Lobby {
           <span class="lb-map">${level ? `${t(level.name)} · ${t('{n} waves', { n: level.waves.length })}` : ''}</span>
           <button data-lb-back>${t('Leave')}</button>
         </div>
-        <ol class="lb-strip"></ol>
-        <p class="party-elements"></p>
         <div class="lb-main">
           <section class="lb-pick-col">
+            <ol class="lb-strip"></ol>
+            <p class="party-elements"></p>
             <div class="lb-filter" role="group" aria-label="${t('Element')}"></div>
             <div class="lb-hero-grid"></div>
           </section>
-          <aside class="lb-details"></aside>
+          <div class="lb-details-wrap"><aside class="lb-details"></aside></div>
         </div>
         <div class="lb-bottom">
           <div class="lb-chat">

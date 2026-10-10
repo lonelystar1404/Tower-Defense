@@ -1,5 +1,5 @@
 import { ABILITY_KEYS, HEROES, HERO_IDS, type HeroId } from '../data/hero';
-import { ELEMENTS } from '../data/elements';
+import { ELEMENTS, type ElementId } from '../data/elements';
 import { BUILD_ELEMENTS } from '../data/towers';
 import { PARTY, PLAYER_COLORS } from '../data/party';
 import { LEVELS } from '../data/levels';
@@ -7,7 +7,6 @@ import { t } from '../i18n';
 import type { LevelDef } from '../data/levels';
 import { drawHeroSprite } from '../render/sprites';
 import { ABILITY_ICONS, abilityMeta } from './HeroBar';
-import { tipAttrs } from './tooltip';
 import { heroProfile } from './InfoPanel';
 
 const KEY = 'td-hero';
@@ -31,8 +30,10 @@ function saveHero(id: HeroId): void {
 }
 
 /**
- * Hero select screen, shown before a hero map starts. In 'party' mode (Multiplayer on Map 8 on)
- * players pick 2–5 different heroes, one each, in player order.
+ * Hero select screen, shown before a hero map starts. Laid out like the online lobby: the hero
+ * grid (with element filter tabs) on the left, the details of the hero you hover or tap on the
+ * right (a pop-up on phones, from each hero's ⓘ). In 'party' mode (local Multiplayer) players
+ * pick 2–5 different heroes, one each, in player order.
  */
 export class HeroSelect {
   private level: LevelDef | null = null;
@@ -43,6 +44,12 @@ export class HeroSelect {
   private frame = 0;
   /** Which heroes can be picked (second-roster heroes unlock by clearing a map). */
   private unlocked: (id: HeroId) => boolean = () => true;
+  /** Hero shown on the right: the last one hovered or tapped. */
+  private viewed: HeroId = 'vex';
+  /** Element tab: only heroes of this element (null = all). */
+  private filter: ElementId | null = null;
+  /** Phones: the details pop-up is open. */
+  private popup = false;
 
   constructor(
     private readonly root: HTMLElement,
@@ -64,15 +71,41 @@ export class HeroSelect {
         this.hide();
         return this.onDeploy(this.level, [this.picked]);
       }
+      if (el.closest('[data-sel-popup-close]') || el.classList.contains('lb-popup')) {
+        this.popup = false;
+        return this.render();
+      }
+      const filter = el.closest<HTMLElement>('[data-sel-filter]');
+      if (filter) {
+        this.filter = (filter.dataset.selFilter || null) as ElementId | null;
+        return this.render();
+      }
+      const info = el.closest<HTMLElement>('[data-sel-info]');
+      if (info) {
+        this.viewed = info.dataset.selInfo as HeroId;
+        this.popup = true;
+        return this.render();
+      }
       const card = el.closest<HTMLElement>('[data-hero]');
-      if (card && !card.classList.contains('locked')) {
-        const id = card.dataset.hero as HeroId;
+      if (!card) return;
+      const id = card.dataset.hero as HeroId;
+      this.viewed = id;
+      if (this.unlocked(id)) {
         if (this.mode === 'party') {
           // Tap to add the next player's hero; tap again to take it back out.
           if (this.party.includes(id)) this.party = this.party.filter((h) => h !== id);
           else if (this.party.length < PARTY.maxPlayers) this.party.push(id);
         } else this.picked = id;
-        this.render();
+      }
+      this.render();
+    });
+    // Hovering a hero (mouse) shows its details, and they stay while you move over to read its skills.
+    root.addEventListener('pointerover', (ev) => {
+      if (ev.pointerType !== 'mouse') return;
+      const id = (ev.target as HTMLElement).closest<HTMLElement>('.lb-hero-grid [data-hero]')?.dataset.hero as HeroId | undefined;
+      if (id && id !== this.viewed) {
+        this.viewed = id;
+        this.renderDetails();
       }
     });
   }
@@ -87,6 +120,8 @@ export class HeroSelect {
     this.mode = mode;
     this.party = [];
     this.picked = unlocked(lastHero()) ? lastHero() : 'vex';
+    this.viewed = this.picked;
+    this.popup = false;
     this.render();
     this.root.hidden = false;
     this.animate();
@@ -102,42 +137,47 @@ export class HeroSelect {
     cancelAnimationFrame(this.frame);
   }
 
+  /** The hero on the right, with a note: picked, which player has it, or what unlocks it. */
+  private detailsHtml(id: HeroId): string {
+    const slot = this.party.indexOf(id);
+    const unlockMap = LEVELS.find((l) => l.id === HEROES[id].unlockedBy);
+    const note = !this.unlocked(id)
+      ? `<p class="lb-taken-note">🔒 ${t('Clear {map} to unlock', { map: t(unlockMap?.name ?? 'Core Nexus') })}</p>`
+      : this.mode === 'party'
+        ? slot >= 0 ? `<p class="lb-taken-note" style="color:${PLAYER_COLORS[slot]}">P${slot + 1}</p>` : ''
+        : id === this.picked ? `<p class="lb-taken-note">✓ ${t('Your hero')}</p>` : '';
+    return note + heroDetails(id);
+  }
+
+  private renderDetails(): void {
+    const id = this.viewed;
+    const box = this.root.querySelector<HTMLElement>('.lb-details');
+    if (box) box.innerHTML = this.detailsHtml(id);
+    this.root.querySelectorAll<HTMLElement>('.lb-hero-grid [data-hero]').forEach((b) => b.classList.toggle('viewed', b.dataset.hero === id));
+  }
+
   private render(): void {
-    const cards = HERO_IDS.map((id) => {
-      const def = HEROES[id];
-      const a = def.attack;
-      const attack = a.cleave ? t('Melee, hits around the target') : a.chain ? t('Magic bolt, jumps to {n} more', { n: a.chain }) : a.range >= 4 ? t('Long-range shots') : t('Rapid shots');
-      const abilities = def.abilities
-        .map(
-          (ab, slot) => `
-          <li ${tipAttrs(t(ab.name), abilityMeta(ab, slot), t(ab.description), def.color)}>
-            <svg viewBox="0 0 24 24" aria-hidden="true">${ABILITY_ICONS[ab.id] ?? ''}</svg>
-            <span><b>${ABILITY_KEYS[slot]}</b> ${t(ab.name)}</span><span class="lv">${t('Lv')} ${ab.unlockLevel}</span>
-          </li>`,
-        )
-        .join('');
-      const open = this.unlocked(id);
-      const unlockMap = LEVELS.find((l) => l.id === def.unlockedBy);
-      // The passive is listed first, as an always-on ability.
-      const passive = def.passive
-        ? `<li class="passive" ${tipAttrs(t(def.passive.name), `✦ ${t('Passive')} · ${t('Always on')}`, t(def.passive.description), def.color)}>
-            <svg viewBox="0 0 24 24" aria-hidden="true">${ABILITY_ICONS[`${id}-passive`] ?? ''}</svg>
-            <span><b>✦</b> ${t(def.passive.name)}</span><span class="lv">${t('Passive')}</span>
-          </li>`
-        : '';
-      const slot = this.party.indexOf(id);
-      const picked = this.mode === 'party' ? slot >= 0 : id === this.picked;
-      return `
-        <button class="hero-card ${picked ? 'picked' : ''} ${open ? '' : 'locked'}" data-hero="${id}" style="--el-color:${def.color}" aria-pressed="${picked}" ${open ? '' : 'aria-disabled="true"'}>
-          ${open ? '' : `<span class="hero-lock">🔒 ${t('Clear {map} to unlock', { map: t(unlockMap?.name ?? 'Core Nexus') })}</span>`}
-          ${slot >= 0 ? `<span class="party-badge" style="--player-color:${PLAYER_COLORS[slot]}">P${slot + 1}</span>` : ''}
-          <canvas width="96" height="96" data-portrait="${id}"></canvas>
-          ${heroProfile(def)}
-          <div class="hero-attack">⚔ ${attack} · ${t('range {n}', { n: a.range })}</div>
-          <ul class="hero-abilities-list">${passive}${abilities}</ul>
-        </button>`;
-    }).join('');
     const party = this.mode === 'party';
+    const shown = this.viewed;
+    const cells = HERO_IDS.filter((id) => !this.filter || HEROES[id].element === this.filter).map((id) => {
+      const def = HEROES[id];
+      const open = this.unlocked(id);
+      const slot = this.party.indexOf(id);
+      const picked = party ? slot >= 0 : id === this.picked;
+      return `<div class="lb-hero-cell">
+        <button class="lb-hero-btn ${picked ? 'picked' : ''} ${open ? '' : 'locked'} ${id === shown ? 'viewed' : ''}" data-hero="${id}" style="--el-color:${def.color}" aria-pressed="${picked}">
+          <canvas width="96" height="96" data-portrait="${id}"></canvas>
+          <span class="lb-hero-name">${def.callsign}</span>
+          <span>${ELEMENTS[def.element].icon} ${t(ELEMENTS[def.element].name)}</span>
+          ${open ? '' : '<span class="lb-taken">🔒</span>'}
+          ${slot >= 0 ? `<span class="lb-taken" style="color:${PLAYER_COLORS[slot]}">P${slot + 1}</span>` : ''}
+        </button>
+        <button class="lb-info-btn" data-sel-info="${id}" title="${t('Details')}" aria-label="${t('Details')}: ${def.callsign}">ⓘ</button>
+      </div>`;
+    }).join('');
+    const filters = [null, ...BUILD_ELEMENTS]
+      .map((e) => `<button class="${this.filter === e ? 'active' : ''}" data-sel-filter="${e ?? ''}" ${e ? `style="--el-color:${ELEMENTS[e].color}" title="${t(ELEMENTS[e].name)}"` : ''}>${e ? ELEMENTS[e].icon : t('All')}</button>`)
+      .join('');
     const covered = new Set(this.party.map((id) => HEROES[id].element));
     const deploy = party
       ? `<button class="primary" data-deploy ${this.party.length < PARTY.minPlayers ? 'disabled' : ''}>${
@@ -149,7 +189,6 @@ export class HeroSelect {
           <p>${t('Each player picks a different hero: tap heroes in player order (P1 first), {min} to {max} players. Each player has their own gold and towers; lives are shared.', { min: PARTY.minPlayers, max: PARTY.maxPlayers })}</p>
           <p class="party-elements">${BUILD_ELEMENTS.map((e) => `<span class="${covered.has(e) ? 'on' : ''}" style="--el-color:${ELEMENTS[e].color}" title="${t(ELEMENTS[e].name)}">${ELEMENTS[e].icon}</span>`).join('')}
             ${covered.size >= 5 ? `<b>✦ ${t('Five elements: +{n}% hero damage', { n: Math.round(PARTY.fullElementsAttack * 100) })}</b>` : t('{n}/5 elements · all five give every hero +{pct}% damage', { n: covered.size, pct: Math.round(PARTY.fullElementsAttack * 100) })}</p>
-          <p class="muted">${t('Online rooms are coming. For now the party plays on this device: tap a player under the map to play as them.')}</p>
         </div>`
       : '';
     this.root.innerHTML = `
@@ -162,7 +201,14 @@ export class HeroSelect {
           </div>
         </div>
         ${partyInfo}
-        <div class="hero-grid">${cards}</div>
+        <div class="lb-main">
+          <section class="lb-pick-col">
+            <div class="lb-filter" role="group" aria-label="${t('Element')}">${filters}</div>
+            <div class="lb-hero-grid">${cells}</div>
+          </section>
+          <aside class="lb-details">${this.detailsHtml(shown)}</aside>
+        </div>
+        <div class="lb-popup" ${this.popup ? '' : 'hidden'}><div class="lb-popup-card"><button class="lb-popup-x" data-sel-popup-close aria-label="${t('Close')}">✕</button><div class="lb-popup-body">${this.popup ? this.detailsHtml(this.viewed) : ''}</div></div></div>
       </div>`;
   }
 
@@ -192,24 +238,46 @@ export class HeroSelect {
   }
 }
 
+/** Which skill each hero's details panel shows (by hero), so it survives re-renders. */
+const activeSkill = new Map<HeroId, number>();
+
 /**
- * A hero's full details: profile, stats, passive, and each ability with what it does (the
- * online lobby shows this for the hero you tap).
+ * A hero's full details: profile, then the skills (passive first) as a row of icon tiles with
+ * the hovered or tapped skill's name and description under them (see the handlers below), then
+ * the stats in two columns. Skills come before stats so the description shows without
+ * scrolling. Used by hero select and the online lobby.
  */
 export function heroDetails(id: HeroId): string {
   const def = HEROES[id];
   const a = def.attack;
   const kind = a.cleave ? t('Melee, hits around the target') : a.chain ? t('Magic bolt, jumps to {n} more', { n: a.chain }) : a.range >= 4 ? t('Long-range shots') : t('Rapid shots');
   const pct = (v: number) => `${Math.round(v * 100)}%`;
-  const ability = (ab: (typeof def.abilities)[number], slot: number) => `
-    <li>
-      <svg viewBox="0 0 24 24" aria-hidden="true">${ABILITY_ICONS[ab.id] ?? ''}</svg>
-      <div><b>${ABILITY_KEYS[slot]} · ${t(ab.name)}</b> <span class="lv">${abilityMeta(ab, slot)}</span><p>${t(ab.description)}</p></div>
-    </li>`;
+  const skills = [
+    ...(def.passive
+      ? [{ icon: ABILITY_ICONS[`${id}-passive`], key: '✦', name: t(def.passive.name), tag: t('Passive'), meta: `✦ ${t('Passive')} · ${t('Always on')}`, text: t(def.passive.description), passive: true }]
+      : []),
+    ...def.abilities.map((ab, slot) => ({
+      icon: ABILITY_ICONS[ab.id], key: ABILITY_KEYS[slot], name: t(ab.name), tag: `${t('Lv')} ${ab.unlockLevel}`, meta: abilityMeta(ab, slot), text: t(ab.description), passive: false,
+    })),
+  ];
+  const active = Math.min(activeSkill.get(id) ?? 0, skills.length - 1);
   return `
     <div class="hero-details" style="--el-color:${def.color}">
       <canvas width="96" height="96" data-portrait="${id}"></canvas>
       ${heroProfile(def)}
+      <div class="skill-list" data-skills-of="${id}">
+        <h4>${t('Skills')}</h4>
+        <ul>
+          ${skills.map((sk, i) => `<li><button type="button" class="skill-row ${sk.passive ? 'passive' : ''} ${i === active ? 'active' : ''}" data-skill="${i}" aria-pressed="${i === active}" aria-label="${sk.key} · ${sk.name}" title="${sk.name}">
+            <svg viewBox="0 0 24 24" aria-hidden="true">${sk.icon ?? ''}</svg>
+            <span class="skill-key">${sk.key}</span>
+            <span class="skill-tag">${sk.tag}</span>
+          </button></li>`).join('')}
+        </ul>
+        <div class="skill-desc" aria-live="polite">
+          ${skills.map((sk, i) => `<div data-skill-desc="${i}" ${i === active ? '' : 'hidden'}><b>${sk.name}</b><span class="lv">${sk.meta}</span><p>${sk.text}</p></div>`).join('')}
+        </div>
+      </div>
       <dl class="hero-stats">
         <dt>${t('Attack')}</dt><dd>${kind}</dd>
         <dt>${t('Damage')}</dt><dd>${a.damage}</dd>
@@ -219,11 +287,35 @@ export function heroDetails(id: HeroId): string {
         <dt>${t('Armor pierce')}</dt><dd>${pct(a.armorPierce)}</dd>
         <dt>${t('Move speed')}</dt><dd>${t('{n} tiles/s', { n: def.speed })}</dd>
       </dl>
-      <ul class="hero-skill-list">
-        ${def.passive ? `<li class="passive"><svg viewBox="0 0 24 24" aria-hidden="true">${ABILITY_ICONS[`${id}-passive`] ?? ''}</svg><div><b>✦ ${t(def.passive.name)}</b> <span class="lv">${t('Passive')} · ${t('Always on')}</span><p>${t(def.passive.description)}</p></div></li>` : ''}
-        ${def.abilities.map(ability).join('')}
-      </ul>
     </div>`;
+}
+
+/** Shows skill `i`'s description in its list (and remembers it for that hero). */
+function showSkill(row: HTMLElement): void {
+  const list = row.closest<HTMLElement>('.skill-list');
+  if (!list) return;
+  const i = Number(row.dataset.skill);
+  activeSkill.set(list.dataset.skillsOf as HeroId, i);
+  list.querySelectorAll<HTMLElement>('.skill-row').forEach((r) => {
+    const on = Number(r.dataset.skill) === i;
+    r.classList.toggle('active', on);
+    r.setAttribute('aria-pressed', String(on));
+  });
+  list.querySelectorAll<HTMLElement>('[data-skill-desc]').forEach((d) => (d.hidden = Number(d.dataset.skillDesc) !== i));
+}
+
+// Hover (mouse), tap, or keyboard focus on a skill shows its description. One set of listeners
+// for every details panel, wherever it's drawn.
+if (typeof document !== 'undefined') {
+  const pick = (ev: Event) => {
+    const row = (ev.target as HTMLElement | null)?.closest?.<HTMLElement>('.skill-row');
+    if (row) showSkill(row);
+  };
+  document.addEventListener('pointerover', (ev) => {
+    if (ev.pointerType === 'mouse') pick(ev);
+  });
+  document.addEventListener('click', pick);
+  document.addEventListener('focusin', pick);
 }
 
 /** Draws the hero portraits (`canvas[data-portrait]`) inside `root`, once. */

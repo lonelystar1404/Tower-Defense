@@ -34,6 +34,10 @@ export class Tower {
   boostDamage = 1;
   /** Knocked out by a Disruptor: doesn't aim, recharge, or fire while > 0. */
   disabledTime = 0;
+  /** Seconds left on an upgrade to `level + 1` (paid already); offline while > 0. */
+  upgradeTime = 0;
+  /** Length of the running upgrade, for its progress. */
+  upgradeTotal = 0;
 
   /** `owner`: index of the player who built it and gets its kill gold (0 in single-player). */
   constructor(readonly col: number, readonly row: number, option: TowerOption, cost: number, readonly owner = 0) {

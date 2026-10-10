@@ -407,6 +407,13 @@ button.danger:hover { background: rgba(255, 56, 100, 0.15); box-shadow: 0 0 10px
 .party-gold::before { content: '◎ '; font-size: 10px; }
 .party-bonus { font-size: 11px; color: #7dffc0; text-shadow: 0 0 6px rgba(125, 255, 192, 0.6); }
 .info-owner { font-size: 12px; margin-top: 2px; }
+/* Upgrade in progress: the button fills up like a progress bar */
+button.upgrade.upgrading:disabled {
+  opacity: 1;
+  color: var(--text);
+  background: linear-gradient(90deg, rgba(0, 240, 255, 0.28) var(--p), rgba(0, 240, 255, 0.05) var(--p));
+  border-color: var(--cyan);
+}
 
 /* Multiplayer loans: debt on the chips, the Borrow button, and the loan box over the map */
 .party-debt { font: 600 11px var(--display); color: var(--danger); }
@@ -586,27 +593,52 @@ button.danger:hover { background: rgba(255, 56, 100, 0.15); box-shadow: 0 0 10px
 }
 
 /* Hero select screen */
-.menu-card.hero-select-card { width: min(1400px, 100%); }
-.hero-select-card .menu-head .row { display: flex; gap: 8px; }
-.hero-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
-.hero-card {
+.menu-card.hero-select-card { width: min(1320px, 100%); position: relative; display: flex; flex-direction: column; gap: 10px; }
+.hero-select-card .menu-head { margin-bottom: 0; }
+.hero-select-card .party-pick { margin: 0; }
+.lb-hero-btn.locked { opacity: 0.5; filter: grayscale(0.6); }
+/* Fixed size: hovering heroes with longer bios scrolls the details instead of resizing the screen */
+.hero-select-card .lb-main { grid-template-columns: minmax(0, 1fr) 380px; height: min(660px, calc(100dvh - 200px)); }
+.hero-select-card .lb-pick-col { min-height: 0; overflow-y: auto; }
+.hero-select-card .lb-main .lb-details { height: 100%; max-height: none; overflow-y: auto; scrollbar-gutter: stable; }
+.hero-select-card .skill-desc { min-height: 84px; }
+@media (max-width: 1000px) {
+  .hero-select-card .lb-main { grid-template-columns: minmax(0, 1fr) 320px; }
+}
+@media (orientation: landscape) and (max-height: 520px), (max-width: 760px) {
+  .hero-select-card .lb-main { grid-template-columns: 1fr; height: auto; }
+}
+
+/* Hero details: skills as a row of icon tiles; the hovered / tapped one's name and description below */
+.skill-list { clear: both; margin-top: 10px; }
+.skill-list h4 { margin: 0 0 6px; font: 700 11px var(--display); letter-spacing: 0.12em; color: var(--muted); text-transform: uppercase; }
+.skill-list ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.skill-row {
+  width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  text-align: left;
-  padding: 12px;
-  background: var(--panel-2);
+  align-items: center;
+  gap: 3px;
+  padding: 6px 2px 5px;
+  color: var(--text);
+  background: var(--panel);
   border: 1px solid var(--border);
+  box-shadow: none;
 }
-.hero-card canvas { width: 96px; height: 96px; align-self: center; }
-.hero-card.picked { border-color: var(--el-color); box-shadow: 0 0 18px color-mix(in srgb, var(--el-color) 45%, transparent); background: color-mix(in srgb, var(--el-color) 8%, var(--panel-2)); }
-.hero-card:hover { border-color: var(--el-color); }
+.skill-row svg { width: 34px; height: 34px; padding: 5px; fill: none; stroke: var(--el-color); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; border: 1px solid color-mix(in srgb, var(--el-color) 45%, transparent); border-radius: 6px; background: rgba(5, 6, 11, 0.6); }
+.skill-row.passive svg { border-style: dashed; }
+.skill-key { font: 800 13px var(--display); color: var(--el-color); line-height: 1; }
+.skill-tag { font-size: 9px; color: var(--muted); white-space: nowrap; }
+.skill-row:hover, .skill-row:focus-visible { border-color: color-mix(in srgb, var(--el-color) 70%, transparent); }
+.skill-row.active { border-color: var(--el-color); background: color-mix(in srgb, var(--el-color) 12%, var(--panel)); box-shadow: 0 0 10px color-mix(in srgb, var(--el-color) 35%, transparent); }
+.skill-row.active svg { background: color-mix(in srgb, var(--el-color) 18%, #05060b); }
+.skill-desc { margin-top: 8px; padding: 8px 10px; min-height: 72px; font-size: 12px; background: rgba(5, 6, 11, 0.55); border: 1px solid color-mix(in srgb, var(--el-color) 50%, transparent); border-left: 3px solid var(--el-color); border-radius: 5px; }
+.skill-desc b { display: block; color: var(--el-color); font: 700 12px var(--display); letter-spacing: 0.04em; }
+.skill-desc .lv { font-size: 11px; color: var(--muted); }
+.skill-desc p { margin: 4px 0 0; line-height: 1.45; }
+.hero-select-card .menu-head .row { display: flex; gap: 8px; }
 .hero-profile .info-name { font-size: 15px; }
 .hero-bio { margin: 6px 0 0; font-size: 12px; color: var(--text); opacity: 0.85; }
-.hero-attack { font-size: 12px; color: var(--el-color); }
-.hero-card { position: relative; }
-.hero-card.locked { opacity: 0.55; cursor: not-allowed; filter: grayscale(0.5); }
-.hero-card.locked:hover { border-color: var(--border); box-shadow: none; }
 .party-badge { position: absolute; top: 8px; left: 8px; z-index: 1; font: 800 12px var(--display); color: #021015; background: var(--player-color); border-radius: 3px; padding: 1px 7px; box-shadow: 0 0 10px var(--player-color); }
 .party-pick { margin: -4px 0 12px; font-size: 13px; }
 .party-pick p { margin: 4px 0; }
@@ -614,12 +646,6 @@ button.danger:hover { background: rgba(255, 56, 100, 0.15); box-shadow: 0 0 10px
 .party-elements span { font-size: 18px; opacity: 0.3; filter: grayscale(1); }
 .party-elements span.on { opacity: 1; filter: drop-shadow(0 0 6px var(--el-color)); }
 .party-elements b { color: #7dffc0; }
-.hero-lock { position: absolute; top: 8px; right: 8px; font-size: 11px; color: var(--muted); background: var(--panel); border: 1px solid var(--border); border-radius: 3px; padding: 1px 6px; }
-.hero-abilities-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
-.hero-abilities-list li { display: flex; align-items: center; gap: 6px; }
-.hero-abilities-list svg { width: 18px; height: 18px; flex: none; fill: none; stroke: var(--el-color); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.hero-abilities-list b { color: var(--el-color); font-family: var(--display); font-size: 11px; }
-.hero-abilities-list .lv { margin-left: auto; color: var(--muted); font-size: 11px; }
 .hero-ability .info-label { display: flex; align-items: center; gap: 6px; }
 .hero-ability .info-label svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
@@ -677,12 +703,11 @@ button.danger:hover { background: rgba(255, 56, 100, 0.15); box-shadow: 0 0 10px
 .hero-details canvas { width: 72px; height: 72px; float: right; margin: 0 0 4px 8px; }
 .hero-stats { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 8px 0; font-size: 12px; }
 .hero-stats dd { color: var(--el-color); }
-.hero-skill-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.hero-skill-list li { display: grid; grid-template-columns: 20px 1fr; gap: 8px; align-items: start; font-size: 12px; }
-.hero-skill-list svg { width: 20px; height: 20px; fill: none; stroke: var(--el-color); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.hero-skill-list b { color: var(--el-color); font: 600 12px var(--display); }
-.hero-skill-list .lv { color: var(--muted); font-size: 11px; }
-.hero-skill-list p { margin: 2px 0 0; color: var(--text); opacity: 0.9; }
+/* In the details panel: two label/value pairs per row, under the skills */
+.hero-details .hero-stats { grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr); gap: 3px 10px; margin: 10px 0 0; padding-top: 8px; border-top: 1px solid var(--border); font-size: 11px; }
+.hero-details .hero-stats dt { color: var(--muted); }
+.hero-details .hero-stats dd { margin: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hero-details .hero-stats dd:first-of-type { grid-column: span 3; }
 @media (max-width: 700px) {
   .lb-pick { grid-template-columns: 1fr; }
 }
@@ -1150,10 +1175,8 @@ button.upgrade:hover:not(:disabled) { background: rgba(125, 255, 192, 0.1); box-
 .tooltip-title { font: 800 12px var(--display); letter-spacing: 0.06em; color: var(--tip-color, var(--cyan)); text-transform: uppercase; }
 .tooltip-meta { margin-top: 2px; font-size: 11px; color: var(--muted); }
 .tooltip-body { margin-top: 5px; color: var(--text); }
-.hero-abilities-list li { cursor: help; }
-.hero-abilities-list li.passive b { color: var(--el-color); }
 
-/* Online room lobby, "champion select": player strip on top, heroes + details, chat and READY at the bottom */
+/* Online room lobby, "champion select": player cards + heroes on the left, details on the right (full height), chat and READY at the bottom */
 .menu-card.lobby-room { width: min(1320px, 100%); position: relative; display: flex; flex-direction: column; gap: 10px; }
 .lb-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .lb-top h2 { margin: 0; font: 800 18px var(--display); letter-spacing: 0.12em; color: var(--cyan); }
@@ -1185,7 +1208,7 @@ button.upgrade:hover:not(:disabled) { background: rgba(125, 255, 192, 0.1); box-
 .lb-slot-hero { font: 700 12px var(--display); color: var(--el-color, var(--muted)); white-space: nowrap; }
 .lb-slot .lb-ready-mark { position: absolute; top: 4px; right: 8px; font: 800 15px var(--display); color: var(--muted); }
 .lb-slot.is-ready .lb-ready-mark { color: #7dffc0; text-shadow: 0 0 8px rgba(125, 255, 192, 0.7); }
-.lobby-room > .party-elements { margin: 0; font-size: 12px; }
+.lb-pick-col > .party-elements { margin: 0; font-size: 12px; }
 .lb-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: 12px; min-height: 0; }
 .lb-pick-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .lb-filter { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -1197,7 +1220,24 @@ button.upgrade:hover:not(:disabled) { background: rgba(125, 255, 192, 0.1); box-
 .lb-hero-btn { align-items: center; text-align: center; padding: 6px 4px 8px; }
 .lb-hero-btn canvas { width: 56px; height: 56px; }
 .lb-info-btn { position: absolute; bottom: 4px; right: 4px; width: 24px; height: 24px; padding: 0; font-size: 13px; line-height: 1; border-radius: 50%; background: rgba(5, 6, 11, 0.7); }
-.lb-main .lb-details { max-height: 52vh; overflow-y: auto; }
+/* The details column runs from the top of the player cards to the bottom of the hero grid and
+   scrolls inside, so it never stretches the room */
+.lb-details-wrap { position: relative; min-height: 0; }
+.lb-details-wrap > .lb-details { position: absolute; inset: 0; max-height: none; overflow-y: auto; scrollbar-gutter: stable; }
+.lobby-room .lb-main { min-height: min(560px, calc(100dvh - 300px)); }
+/* Player cards share the left column: compact, and narrower still when the column is */
+.lobby-room .lb-pick-col { container-type: inline-size; }
+.lobby-room .lb-strip { gap: 6px; }
+.lobby-room .lb-slot { min-height: 62px; padding: 5px 6px; gap: 6px; }
+.lobby-room .lb-slot canvas, .lobby-room .lb-slot-q { width: 42px; height: 42px; font-size: 20px; }
+.lobby-room .lb-slot-text { font-size: 11px; }
+.lobby-room .lb-slot-hero { font-size: 11px; }
+@container (max-width: 760px) {
+  .lb-slot { flex-direction: column; justify-content: center; text-align: center; gap: 2px; }
+  .lb-slot-text { align-items: center; }
+  .lb-slot-name { display: none; }
+  .lobby-room .lb-slot canvas, .lobby-room .lb-slot-q { width: 32px; height: 32px; font-size: 16px; }
+}
 .lb-bottom { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 12px; align-items: end; }
 /* Chat: see-through, collapsible */
 .lb-chat {
@@ -1252,9 +1292,10 @@ button.upgrade:hover:not(:disabled) { background: rgba(125, 255, 192, 0.1); box-
   .lb-slot-name { display: none; }
   .lb-slot-text { font-size: 10px; }
   .lb-slot-hero { font-size: 10px; }
-  .lobby-room > .party-elements { display: none; }
+  .lb-pick-col > .party-elements { display: none; }
   .lb-main { grid-template-columns: 1fr; }
-  .lb-main .lb-details { display: none; }
+  .lb-main .lb-details, .lb-details-wrap { display: none; }
+  .lobby-room .lb-main { min-height: 0; }
   .lb-pick-col .lb-hero-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
   .lb-hero-btn { padding: 3px 2px 5px; font-size: 9px; }
   .lb-hero-btn canvas { width: 34px; height: 34px; }

@@ -61,11 +61,14 @@ export const LOCKDOWN = {
 /** Fraction of the gold spent on a tower that selling it gives back. */
 export const SELL_REFUND = 0.7;
 
-/** Upgrade levels. Index 0 is level 1 (as built). Multipliers apply to the level-1 stats. */
+/**
+ * Upgrade levels. Index 0 is level 1 (as built). Multipliers apply to the level-1 stats.
+ * `upgradeTime`: seconds the upgrade to this level takes; the tower is offline meanwhile.
+ */
 export const TOWER_LEVELS = [
-  { costMult: 0, damageMult: 1, rangeMult: 1, fireRateMult: 1, effectPower: 1 },
-  { costMult: 0.6, damageMult: 1.5, rangeMult: 1.1, fireRateMult: 1, effectPower: 1.25 },
-  { costMult: 1, damageMult: 2.2, rangeMult: 1.25, fireRateMult: 1.15, effectPower: 1.5 },
+  { costMult: 0, damageMult: 1, rangeMult: 1, fireRateMult: 1, effectPower: 1, upgradeTime: 0 },
+  { costMult: 0.6, damageMult: 1.5, rangeMult: 1.1, fireRateMult: 1, effectPower: 1.25, upgradeTime: 5 },
+  { costMult: 1, damageMult: 2.2, rangeMult: 1.25, fireRateMult: 1.15, effectPower: 1.5, upgradeTime: 7 },
 ] as const;
 
 export const MAX_TOWER_LEVEL = TOWER_LEVELS.length;

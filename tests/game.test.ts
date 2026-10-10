@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ENEMIES, type EnemyId } from '../src/data/enemies';
 import { LEVELS, type LevelDef } from '../src/data/levels';
-import { BUILD_ELEMENTS, MAX_TOWER_LEVEL, towerCost, towerStats, upgradeCost, type TowerOption } from '../src/data/towers';
+import { BUILD_ELEMENTS, MAX_TOWER_LEVEL, TOWER_LEVELS, towerCost, towerStats, upgradeCost, type TowerOption } from '../src/data/towers';
 import type { ElementId } from '../src/data/elements';
 import type { WeaponId } from '../src/data/weapons';
 import { Enemy } from '../src/entities/Enemy';
@@ -40,8 +40,14 @@ function place(game: Game, id: EnemyId, distance: number, hpMult = 1): Enemy {
   return e;
 }
 
+/** Lets running upgrades finish (a player upgrades during the break, then presses Ready). */
+function finishUpgrades(game: Game): void {
+  for (let i = 0; i < 60 * 10 && game.towers.some((t) => t.upgradeTime > 0); i++) game.update(STEP);
+}
+
 /** Runs until the current wave ends (or the game ends), using the hero's abilities if there is one. */
 function playWave(game: Game): void {
+  finishUpgrades(game);
   game.startWave();
   for (let i = 0; i < 60 * 600 && game.phase === 'wave'; i++) {
     game.update(STEP);
@@ -150,7 +156,7 @@ function playBot(lvl: LevelDef, seed: number, plan: TowerOption[], maxTowers = I
     if ((upgrades && game.towers.length >= maxTowers) || mapFull) {
       for (;;) {
         const t = [...game.towers]
-          .filter((tw) => game.nextUpgradeCost(tw) !== null && !game.isLocked(tw))
+          .filter((tw) => game.nextUpgradeCost(tw) !== null && !game.isLocked(tw) && tw.upgradeTime === 0)
           .sort((a, b) => a.level - b.level)[0];
         if (!t || !game.upgrade(t)) break;
       }
@@ -226,8 +232,9 @@ describe('Sound events', () => {
     const game = new Game({ ...level, startGold: 5000 });
     const t = game.build(0, 0, STEEL_CANNON)!;
     game.upgrade(t);
+    finishUpgrades(game);
     game.sell(t);
-    expect(game.drainSounds()).toEqual(['build', 'upgrade', 'sell']);
+    expect(game.drainSounds()).toEqual(['build', 'upgrade-start', 'upgrade', 'sell']);
     expect(game.drainSounds()).toEqual([]);
   });
 
@@ -333,8 +340,9 @@ describe('Upgrades', () => {
     const cost = game.nextUpgradeCost(t)!;
     expect(cost).toBe(upgradeCost(STEEL_CANNON, 2));
     expect(game.upgrade(t)).toBe(true);
-    expect(t.level).toBe(2);
     expect(game.gold).toBe(gold - cost);
+    finishUpgrades(game);
+    expect(t.level).toBe(2);
     expect(t.stats.damage).toBeGreaterThan(before.damage);
     expect(t.stats.range).toBeGreaterThan(before.range);
   });
@@ -342,10 +350,46 @@ describe('Upgrades', () => {
   it('stop at the max level', () => {
     const game = new Game({ ...level, startGold: 10000 });
     const t = game.build(0, 0, STEEL_CANNON)!;
-    for (let i = 1; i < MAX_TOWER_LEVEL; i++) expect(game.upgrade(t)).toBe(true);
+    for (let i = 1; i < MAX_TOWER_LEVEL; i++) {
+      expect(game.upgrade(t)).toBe(true);
+      finishUpgrades(game);
+    }
     expect(t.level).toBe(MAX_TOWER_LEVEL);
     expect(game.nextUpgradeCost(t)).toBeNull();
     expect(game.upgrade(t)).toBe(false);
+  });
+
+  it('take time (5 s to level 2, 7 s to level 3), with the tower offline meanwhile', () => {
+    const game = new Game({ ...corridor, startGold: 10000 }, () => 0.5);
+    const t = game.build(5, 3, metal('cannon'))!;
+    expect(TOWER_LEVELS.map((l) => l.upgradeTime)).toEqual([0, 5, 7]);
+    expect(game.upgrade(t)).toBe(true);
+    expect(t.level).toBe(1);
+    expect(t.upgradeTime).toBe(5);
+    expect(game.upgrade(t)).toBe(false); // one upgrade at a time
+    // Offline: an enemy walks by untouched while it upgrades.
+    const e = place(game, 'grunt', 4);
+    for (let i = 0; i < 60 * 4.9; i++) game.update(STEP);
+    expect(e.hp).toBe(e.maxHp);
+    expect(t.level).toBe(1);
+    for (let i = 0; i < 60 * 0.2; i++) game.update(STEP);
+    expect(t.level).toBe(2);
+    expect(t.upgradeTime).toBe(0);
+    expect(game.upgrade(t)).toBe(true);
+    expect(t.upgradeTime).toBe(7);
+  });
+
+  it('can be sold mid-upgrade (the upgrade gold counts) and survive a save', () => {
+    const game = new Game({ ...level, startGold: 10000 });
+    const t = game.build(0, 0, STEEL_CANNON)!;
+    game.upgrade(t);
+    expect(game.sellValue(t)).toBe(Math.floor((towerCost(STEEL_CANNON) + upgradeCost(STEEL_CANNON, 2)) * 0.7));
+    game.update(2);
+    game.wavesStarted = 1; // snapshots exist between waves
+    const back = Game.restore(level, JSON.parse(JSON.stringify(game.snapshot())));
+    expect(back.towers[0].upgradeTime).toBeCloseTo(3);
+    expect(back.towers[0].upgradeTotal).toBe(5);
+    expect(back.towers[0].level).toBe(1);
   });
 
   it('need enough gold', () => {

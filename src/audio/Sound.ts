@@ -180,6 +180,11 @@ const RECIPES: Record<Exclude<SoundId, `ability:${string}` | `impact:${string}`>
   // Economy
   build: (s, t) => s.notes(t, 'triangle', [440, 660], 0.07, 0.12, 0.14),
   upgrade: (s, t) => s.notes(t, 'triangle', [523, 659, 784, 1047], 0.06, 0.14, 0.13),
+  // An upgrade starting: a servo whir rising, then a lock-in click
+  'upgrade-start': (s, t) => {
+    s.tone(t, 'sawtooth', 180, 520, 0.4, 0.06, 1400);
+    s.tone(t + 0.42, 'square', 1200, 1200, 0.03, 0.05, 5000);
+  },
   sell: (s, t) => s.tone(t, 'triangle', 660, 300, 0.16, 0.13),
   // Loans: two coins changing hands; a rising "paid in full" chime
   loan: (s, t) => s.notes(t, 'triangle', [880, 1175], 0.06, 0.1, 0.12),

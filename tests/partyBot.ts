@@ -112,12 +112,14 @@ export function playParty(level: LevelDef, seed: number, heroes: HeroId[], plan 
       for (let p = 0; p < game.players.length; p++) {
         for (;;) {
           const t = game.towers
-            .filter((tw) => tw.owner === p && game.nextUpgradeCost(tw) !== null && !game.isLocked(tw))
+            .filter((tw) => tw.owner === p && game.nextUpgradeCost(tw) !== null && !game.isLocked(tw) && tw.upgradeTime === 0)
             .sort((a, b) => a.level - b.level)[0];
           if (!t || !game.upgrade(t, p)) break;
         }
       }
     }
+    // Upgrades take a few seconds: let them finish in the break before pressing Ready.
+    for (let i = 0; i < 60 * 10 && game.towers.some((t) => t.upgradeTime > 0); i++) game.update(STEP);
     game.startWave();
     for (let i = 0; i < 60 * 600 && game.phase === 'wave'; i++) {
       game.update(STEP);

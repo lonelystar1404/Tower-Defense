@@ -103,7 +103,7 @@ export class InfoPanel {
     }
     const t = subject.tower;
     const next = game.nextUpgradeCost(t);
-    return `placed:${t.id}:${t.level}:${t.priority}:${game.sellValue(t)}:${next === null ? 'max' : Math.max(0, next - this.gold(game))}:${t.owner}:${this.player}:${game.isLocked(t)}:${game.battlefield.id}`;
+    return `placed:${t.id}:${t.level}:${Math.ceil(t.upgradeTime * 10)}:${t.priority}:${game.sellValue(t)}:${next === null ? 'max' : Math.max(0, next - this.gold(game))}:${t.owner}:${this.player}:${game.isLocked(t)}:${game.battlefield.id}`;
   }
 
   /** The hero: who they are, level and XP, attack, and each ability's state. */
@@ -210,7 +210,12 @@ export class InfoPanel {
     let actions: string;
     if (tower) {
       const upgradeButton =
-        upgrade === null
+        tower.upgradeTime > 0
+          ? `<button class="upgrade upgrading" disabled style="--p:${Math.round((1 - tower.upgradeTime / tower.upgradeTotal) * 100)}%">
+               ${t('Upgrading to Lv {n}…', { n: level + 1 })} <b>${tower.upgradeTime.toFixed(1)}s</b>
+             </button>
+             <p class="info-hint">${t('Offline while it upgrades: it fires again at the new level when done.')}</p>`
+          : upgrade === null
           ? `<button class="upgrade" disabled>${t('Max level')}</button>`
           : game.isLocked(option)
             ? `<button class="upgrade" disabled title="${t('Locked this wave')}">🔒 ${t('Upgrade encrypted this wave')}</button>

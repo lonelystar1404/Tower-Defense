@@ -5,7 +5,7 @@ import { LOAN, PARTY, PARTY_START_OFFSETS } from '../data/party';
 import { ENEMIES, isBoss, type EnemyId } from '../data/enemies';
 import { PREP_TIME, obstacleTiles, type LevelDef, type WaveDef } from '../data/levels';
 import type { WeaponId } from '../data/weapons';
-import { LOCKDOWN, MAX_TOWER_LEVEL, SELL_REFUND, towerCost, towerStats, upgradeCost, type TowerOption } from '../data/towers';
+import { LOCKDOWN, MAX_TOWER_LEVEL, SELL_REFUND, TOWER_LEVELS, towerCost, towerStats, upgradeCost, type TowerOption } from '../data/towers';
 import { Enemy } from '../entities/Enemy';
 import { Projectile } from '../entities/Projectile';
 import { Tower } from '../entities/Tower';
@@ -57,6 +57,8 @@ export type GameSound =
   | `shot-${WeaponId}`
   | 'blast' | 'kill' | 'leak' | 'crit' | 'freeze' | 'stun'
   | 'build' | 'upgrade' | 'sell'
+  /** An upgrade starting (it finishes with 'upgrade') */
+  | 'upgrade-start'
   /** Loans between players: gold lent, and a loan fully repaid */
   | 'loan' | 'loan-repaid'
   | 'wave-start' | 'wave-clear' | 'win' | 'lose'
@@ -221,7 +223,7 @@ export interface GameSnapshot {
   lastWaveBonus: number;
   battlefield: BattlefieldId;
   locked: ComboKey[];
-  towers: { col: number; row: number; weapon: WeaponId; element: ElementId; level: number; spent: number; priority: TargetPriority; owner?: number }[];
+  towers: { col: number; row: number; weapon: WeaponId; element: ElementId; level: number; spent: number; priority: TargetPriority; owner?: number; upgrading?: [number, number] }[];
   hero?: { x: number; y: number; level: number; kills: number };
   /** Multiplayer runs: every player (gold, hero); `gold`/`hero` above are player 1's. */
   players?: { name: string; memberId?: string; gold: number; heroId?: HeroId; hero?: { x: number; y: number; level: number; kills: number } }[];
@@ -416,6 +418,7 @@ export class Game {
       tower.level = t.level;
       tower.stats = towerStats(option, t.level);
       tower.priority = t.priority;
+      if (t.upgrading) [tower.upgradeTime, tower.upgradeTotal] = t.upgrading;
       game.towers.push(tower);
     }
     if (game.hero && snap.hero) {
@@ -447,7 +450,10 @@ export class Game {
       lastWaveBonus: this.lastWaveBonus,
       battlefield: this.battlefield.id,
       locked: [...this.locked],
-      towers: this.towers.map((t) => ({ col: t.col, row: t.row, weapon: t.weapon, element: t.element, level: t.level, spent: t.spent, priority: t.priority, owner: t.owner })),
+      towers: this.towers.map((t) => ({
+        col: t.col, row: t.row, weapon: t.weapon, element: t.element, level: t.level, spent: t.spent, priority: t.priority, owner: t.owner,
+        upgrading: t.upgradeTime > 0 ? [t.upgradeTime, t.upgradeTotal] : undefined,
+      })),
       hero: hero ? { x: hero.x, y: hero.y, level: hero.level, kills: hero.kills } : undefined,
       players:
         this.players.length > 1
@@ -575,14 +581,29 @@ export class Game {
     const cost = this.nextUpgradeCost(tower);
     const p = this.players[tower.owner];
     if (this.over || player !== tower.owner || cost === null || p.gold < cost || !this.towers.includes(tower) || this.isLocked(tower)) return false;
+    if (tower.upgradeTime > 0) return false;
     p.gold -= cost;
     tower.spent += cost;
+    // The upgrade takes time (TOWER_LEVELS.upgradeTime); the tower is offline until it's done.
+    const time = TOWER_LEVELS[tower.level].upgradeTime;
+    if (time <= 0) {
+      this.finishUpgrade(tower);
+      return true;
+    }
+    tower.upgradeTime = tower.upgradeTotal = time;
+    tower.recoil = 0;
+    this.sound('upgrade-start');
+    return true;
+  }
+
+  /** The tower reaches its next level: new stats, a flash, and "LV n". */
+  private finishUpgrade(tower: Tower): void {
+    tower.upgradeTime = tower.upgradeTotal = 0;
     tower.level++;
     this.sound('upgrade');
     tower.stats = towerStats({ weapon: tower.weapon, element: tower.element }, tower.level);
     this.effects.push({ kind: 'blast', x: tower.x, y: tower.y, radius: 0.8, element: tower.element, ttl: 0.4, maxTtl: 0.4, color: '' });
     this.addText(tower.x, tower.y - 0.5, `${t('LV')} ${tower.level}`, '#00f0ff');
-    return true;
   }
 
   sellValue(tower: Tower): number {
@@ -880,6 +901,12 @@ export class Game {
 
   private updateTowers(dt: number): void {
     for (const t of this.towers) {
+      // Upgrading towers are offline until the upgrade is done.
+      if (t.upgradeTime > 0) {
+        t.upgradeTime = Math.max(0, t.upgradeTime - dt);
+        if (t.upgradeTime === 0) this.finishUpgrade(t);
+        continue;
+      }
       // Disrupted towers are offline: no aiming, recharging, or firing.
       if (t.disabledTime > 0) {
         t.disabledTime = Math.max(0, t.disabledTime - dt);

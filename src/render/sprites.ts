@@ -1,15 +1,25 @@
 import { ELEMENTS, type ElementId } from '../data/elements';
 import type { WeaponId } from '../data/weapons';
 import { THEME } from './theme';
+import { drawEarthTower } from './earthTowers';
+import { drawMetalTower } from './metalTowers';
+import { drawWaterTower } from './waterTowers';
+import { drawWoodTower } from './woodTowers';
 
 /**
- * Vector tower art, cyberpunk style: dark armor with neon trim. Color comes from the element,
- * shape from the weapon type, so both read at a glance. Drawn centered at (x, y) inside a
- * square of `size` pixels.
+ * Vector tower art, cyberpunk style: dark armor with neon trim. Each element has its own set
+ * (its own hull silhouette and parts), the weapon type sets the turret, so both read at a
+ * glance. Drawn centered at (x, y) inside a square of `size` pixels.
+ *
+ * Fire is drawn here: a square armor plate with flames in the corners. Water (hexagonal
+ * hydro-tech), Wood (bio-tech seed pod on leaves), Earth (octagonal hazard-striped seismic
+ * rig), and Metal (chrome gear turntable) live in their own files.
  *
  * Upgrades show: each level is a bit bigger; level 2 adds an inner neon frame and larger
  * element motifs; level 3 adds a glowing ring around the base and fins on the turret.
  * Levels 2+ show one pip per level along the bottom edge.
+ *
+ * `time` (seconds) animates the other elements' sets; leave it at 0 for still pictures.
  */
 export function drawTower(
   ctx: CanvasRenderingContext2D,
@@ -21,9 +31,14 @@ export function drawTower(
   angle: number,
   recoil = 0,
   level = 1,
+  time = 0,
 ): void {
   const el = ELEMENTS[element];
   size *= 1 + (level - 1) * 0.08;
+  if (element === 'water') return drawWaterTower(ctx, x, y, size, weapon, angle, recoil, level, time);
+  if (element === 'wood') return drawWoodTower(ctx, x, y, size, weapon, angle, recoil, level, time);
+  if (element === 'earth') return drawEarthTower(ctx, x, y, size, weapon, angle, recoil, level, time);
+  if (element === 'metal') return drawMetalTower(ctx, x, y, size, weapon, angle, recoil, level, time);
   const half = size * 0.4;
 
   if (level >= 3) {
@@ -88,101 +103,35 @@ export function neonStroke(ctx: CanvasRenderingContext2D, color: string, width: 
   ctx.restore();
 }
 
-/** Element motif on the plate: flame chevrons, ice crystals, circuit vines, hazard blocks, or bolts. */
+/** Fire's motif on the plate: flames in the corners (`grow` enlarges them on upgraded towers). */
 function drawElementAccent(ctx: CanvasRenderingContext2D, x: number, y: number, half: number, element: ElementId, grow: number): void {
   const el = ELEMENTS[element];
-  const corners = [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const;
   const inset = half * 0.7;
-  // `grow` enlarges the motifs on upgraded towers; positions stay put.
   const m = half * grow;
-  ctx.save();
-  switch (element) {
-    case 'metal':
-      // Chrome bolts in the corners
-      for (const [dx, dy] of corners) {
-        ctx.beginPath();
-        ctx.arc(x + dx * inset, y + dy * inset, m * 0.1, 0, Math.PI * 2);
-        ctx.fillStyle = el.accent;
-        ctx.fill();
-        ctx.strokeStyle = el.dark;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(x + dx * inset - half * 0.06, y + dy * inset);
-        ctx.lineTo(x + dx * inset + half * 0.06, y + dy * inset);
-        ctx.stroke();
-      }
-      break;
-    case 'fire':
-      // Flames in the corners
-      for (const [dx, dy] of corners) {
-        const fx = x + dx * inset;
-        const fy = y + dy * inset + half * 0.08;
-        flame(ctx, fx, fy, m * 0.2, el.color);
-        flame(ctx, fx, fy, m * 0.1, el.accent);
-      }
-      break;
-    case 'water':
-      // Ice crystals in the corners
-      ctx.fillStyle = el.accent;
-      for (const [dx, dy] of corners) {
-        const cx = x + dx * inset;
-        const cy = y + dy * inset;
-        const r = m * 0.16;
-        ctx.beginPath();
-        ctx.moveTo(cx, cy - r * 1.3);
-        ctx.lineTo(cx + r * 0.7, cy);
-        ctx.lineTo(cx, cy + r * 1.3);
-        ctx.lineTo(cx - r * 0.7, cy);
-        ctx.closePath();
-        ctx.fill();
-      }
-      break;
-    case 'wood': {
-      // Bio-circuit: a vine traced like a circuit board, with glowing nodes
-      const r = half * 0.78;
-      ctx.beginPath();
-      ctx.moveTo(x - r, y - r * 0.4);
-      ctx.lineTo(x - r * 0.6, y - r);
-      ctx.lineTo(x + r * 0.2, y - r);
-      ctx.moveTo(x + r, y - r * 0.2);
-      ctx.lineTo(x + r, y + r * 0.5);
-      ctx.lineTo(x + r * 0.5, y + r);
-      ctx.moveTo(x - r * 0.3, y + r);
-      ctx.lineTo(x - r, y + r * 0.3);
-      neonStroke(ctx, el.color, 1.2 * grow);
-      ctx.fillStyle = el.accent;
-      for (const [nx, ny] of [[0.2, -1], [0.5, 1], [-1, 0.3], [-1, -0.4]] as const) {
-        ctx.beginPath();
-        ctx.arc(x + nx * r, y + ny * r, m * 0.08, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      break;
-    }
-    case 'earth':
-      // Hazard-striped corner blocks
-      ctx.fillStyle = el.color;
-      for (const [dx, dy] of corners) {
-        const bx = x + dx * inset;
-        const by = y + dy * inset;
-        const w = m * 0.28;
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(bx - w / 2, by - w / 2, w, w);
-        ctx.clip();
-        for (let i = -2; i <= 2; i++) {
-          const o = bx + i * w * 0.5;
-          ctx.beginPath();
-          ctx.moveTo(o - w, by + w);
-          ctx.lineTo(o, by - w);
-          ctx.lineTo(o + w * 0.25, by - w);
-          ctx.lineTo(o - w * 0.75, by + w);
-          ctx.fill();
-        }
-        ctx.restore();
-      }
-      break;
+  for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+    const fx = x + dx * inset;
+    const fy = y + dy * inset + half * 0.08;
+    flame(ctx, fx, fy, m * 0.2, el.color);
+    flame(ctx, fx, fy, m * 0.1, el.accent);
   }
-  ctx.restore();
+}
+
+/** Level 3: a soft glow under the tower, out to 1.4× its half-size. */
+export function levelAura(ctx: CanvasRenderingContext2D, x: number, y: number, half: number, color: string): void {
+  const aura = ctx.createRadialGradient(x, y, half * 0.6, x, y, half * 1.45);
+  aura.addColorStop(0, `${color}55`);
+  aura.addColorStop(1, `${color}00`);
+  ctx.fillStyle = aura;
+  ctx.beginPath();
+  ctx.arc(x, y, half * 1.45, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** Levels 2+: one pip per level, centered on (x, y). */
+export function levelPips(ctx: CanvasRenderingContext2D, x: number, y: number, level: number, color: string): void {
+  if (level < 2) return;
+  ctx.fillStyle = color;
+  for (let i = 0; i < level; i++) ctx.fillRect(x + (i - (level - 1) / 2) * 5 - 1.5, y - 1, 3, 2);
 }
 
 function drawWeapon(ctx: CanvasRenderingContext2D, size: number, weapon: WeaponId, element: ElementId, recoil: number, level: number): void {

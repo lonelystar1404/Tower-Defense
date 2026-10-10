@@ -156,7 +156,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     pronouns: 'she/her', race: 'Human', origin: 'Lagos, Nigeria', role: 'Tactician',
     bio: 'A drone engineer who rewired a decommissioned defense satellite to answer only to her. Calm under fire, always three moves ahead.',
     color: '#ffe600', element: 'water', speed: 3,
-    attack: { damage: 10, fireRate: 1.6, range: 2.6, armorPierce: 0.3, critChance: 0.1 },
+    attack: { damage: 9, fireRate: 1.6, range: 2.6, armorPierce: 0.3, critChance: 0.1 },
     passive: {
       name: 'Spotter Uplink', effect: { kind: 'vulnerable-aura', radius: 2.5, amp: 0.15 },
       description: 'Her drones paint targets: enemies within 2.5 tiles of her take 15% more damage from everything.',
@@ -189,7 +189,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     pronouns: 'he/him', race: 'Cyborg', origin: 'Mexico City, Mexico', role: 'Melee',
     bio: 'A former demolition worker who kept the hydraulic arms after the job tried to replace him. Loud, loyal, and happiest in the middle of the crowd.',
     color: '#ff8a3d', element: 'earth', speed: 3.4,
-    attack: { damage: 13, fireRate: 0.85, range: 1.1, armorPierce: 0.5, critChance: 0.1, cleave: 0.6 },
+    attack: { damage: 19, fireRate: 0.85, range: 1.1, armorPierce: 0.5, critChance: 0.1, cleave: 0.6 },
     passive: {
       name: 'Aftershock', effect: { kind: 'every-nth-stun', every: 3, stun: 0.6 },
       description: 'Every third punch stuns everything it hits for 0.6s.',
@@ -222,7 +222,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     pronouns: 'she/her', race: 'Human (ocular implant)', origin: 'Beirut, Lebanon', role: 'Ranged',
     bio: 'A competition marksman whose implant reads wind, heat, and heartbeat. She counts every shot and rarely needs a second one.',
     color: '#ff6fae', element: 'metal', speed: 2.8,
-    attack: { damage: 22, fireRate: 1, range: 4.5, armorPierce: 0.6, critChance: 0.2 },
+    attack: { damage: 23, fireRate: 1, range: 4.5, armorPierce: 0.6, critChance: 0.2 },
     passive: {
       name: 'Headshot', effect: { kind: 'crit-mult', mult: 3 },
       description: 'Her critical hits deal 3× damage instead of 2×.',
@@ -255,7 +255,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     pronouns: 'he/him', race: 'Hologram (uploaded mind)', origin: 'Mumbai, India', role: 'Mage',
     bio: 'A physics teacher who uploaded himself to keep his research alive. He now bends the city network like a lecture hall full of equations.',
     color: '#b388ff', element: 'fire', speed: 3,
-    attack: { damage: 11, fireRate: 1.2, range: 3, armorPierce: 0.2, critChance: 0.05, chain: 2 },
+    attack: { damage: 9, fireRate: 1.2, range: 3, armorPierce: 0.2, critChance: 0.05, chain: 2 },
     passive: {
       name: 'Combustion', effect: { kind: 'death-burst', radius: 1, damage: 12 },
       description: 'Enemies he kills explode, dealing 12 damage to enemies within 1 tile.',
@@ -288,7 +288,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     pronouns: 'they/them', race: 'Android', origin: 'Built in Seoul, South Korea', role: 'Summoner',
     bio: 'A maintenance android that taught itself to build. Echo names every drone it deploys and remembers each one that came back.',
     color: '#5dffb1', element: 'wood', speed: 3.2,
-    attack: { damage: 9, fireRate: 2.2, range: 2.8, armorPierce: 0.2, critChance: 0.05 },
+    attack: { damage: 8, fireRate: 2.2, range: 2.8, armorPierce: 0.2, critChance: 0.05 },
     passive: {
       name: 'Auto-Loader', effect: { kind: 'tower-rate-aura', radius: 2.5, rate: 0.15 },
       description: 'Towers within 2.5 tiles of Echo fire 15% faster.',
@@ -323,7 +323,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     pronouns: 'he/him', race: 'Human (cybernetic arm)', origin: 'Osaka, Japan', role: 'Duelist',
     bio: 'A kendo champion who lost his arm to a factory press and rebuilt it with a monoblade inside. Quiet, exact, and never wastes a cut.',
     color: '#e6ecff', element: 'metal', speed: 3.6, unlockedBy: 'core-nexus',
-    attack: { damage: 15, fireRate: 1.1, range: 1.2, armorPierce: 0.5, critChance: 0.2 },
+    attack: { damage: 19, fireRate: 1.1, range: 1.2, armorPierce: 0.5, critChance: 0.2 },
     passive: {
       name: 'Finisher', effect: { kind: 'finisher', threshold: 0.3, bonus: 0.6 },
       description: 'His hits deal 60% more damage to enemies below 30% HP.',
@@ -356,7 +356,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     pronouns: 'she/her', race: 'Human (deep-dive rig)', origin: 'Honolulu, Hawaiʻi', role: 'Controller',
     bio: 'A salvage diver who learned to move whole currents with a pressure rig built for the ocean floor. Patient, playful, and impossible to rush.',
     color: '#3ab8ff', element: 'water', speed: 3, unlockedBy: 'core-nexus',
-    attack: { damage: 9, fireRate: 1.4, range: 3, armorPierce: 0.2, critChance: 0.05 },
+    attack: { damage: 6, fireRate: 1.4, range: 3, armorPierce: 0.2, critChance: 0.05 },
     passive: {
       name: 'Undertow', effect: { kind: 'slow-aura', radius: 2.5, slow: 0.3 },
       description: 'Enemies within 2.5 tiles of her move 30% slower.',
@@ -389,7 +389,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     pronouns: 'she/her', race: 'Human (exo-frame)', origin: 'São Paulo, Brazil', role: 'Engineer',
     bio: 'A street mechanic who tunes turrets the way other people tune engines. Wherever she stands, the defenses run hotter.',
     color: '#f5d08a', element: 'earth', speed: 2.9, unlockedBy: 'core-nexus',
-    attack: { damage: 10, fireRate: 1, range: 2.6, armorPierce: 0.3, critChance: 0.05 },
+    attack: { damage: 13, fireRate: 1, range: 2.6, armorPierce: 0.3, critChance: 0.05 },
     passive: {
       name: 'Field Engineer', effect: { kind: 'tower-aura', radius: 3, damage: 0.2 },
       description: 'Towers within 3 tiles of her deal 20% more damage.',
@@ -422,7 +422,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     pronouns: 'he/him', race: 'Human (bio-grafts)', origin: 'Tāmaki Makaurau (Auckland), Aotearoa New Zealand', role: 'Grower',
     bio: 'A botanist who grafted a living circuit garden into his own skin. Where he walks, the concrete cracks and something green comes through.',
     color: '#a6ff4d', element: 'wood', speed: 3, unlockedBy: 'core-nexus',
-    attack: { damage: 8, fireRate: 1.5, range: 3, armorPierce: 0.1, critChance: 0.05, chain: 1 },
+    attack: { damage: 5, fireRate: 1.5, range: 3, armorPierce: 0.1, critChance: 0.05, chain: 1 },
     passive: {
       name: 'Overgrowth', effect: { kind: 'element-hits', power: 1 },
       description: 'His hits root ground enemies and poison them, just like a Wood tower (other heroes apply no effects).',
@@ -455,7 +455,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     pronouns: 'she/her', race: 'Human (pyro rig)', origin: 'Istanbul, Türkiye', role: 'Bounty Hunter',
     bio: 'A contract hunter who works the rooftops for whoever pays best this week. Every drone she drops comes with a receipt.',
     color: '#ff5d3a', element: 'fire', speed: 3.1, unlockedBy: 'core-nexus',
-    attack: { damage: 12, fireRate: 1.2, range: 3.2, armorPierce: 0.3, critChance: 0.15 },
+    attack: { damage: 13, fireRate: 1.2, range: 3.2, armorPierce: 0.3, critChance: 0.15 },
     passive: {
       name: 'Bounty', effect: { kind: 'bounty', radius: 3, gold: 0.3 },
       description: 'Enemies that die within 3 tiles of her pay 30% more gold.',

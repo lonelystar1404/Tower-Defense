@@ -77,7 +77,8 @@ export class Renderer {
         roundRect(ctx, t.col * TILE + 1, t.row * TILE + 1, TILE - 2, TILE - 2, 6);
         neonStroke(ctx, '#00f0ff', 1.5);
       }
-      drawTower(ctx, t.x * TILE, t.y * TILE, TILE, t.element, t.weapon, t.angle, t.recoil, t.level);
+      if (t.upgradeTime > 0) this.drawUpgrading(t, game.time);
+      else drawTower(ctx, t.x * TILE, t.y * TILE, TILE, t.element, t.weapon, t.angle, t.recoil, t.level, game.time);
       // Multiplayer: a dot in the owner's color at the tower's corner.
       if (game.players.length > 1) {
         ctx.beginPath();
@@ -186,6 +187,94 @@ export class Renderer {
   }
 
   /** A tower knocked out by a Disruptor: dimmed, with crackling sparks and its seconds left. */
+  /**
+   * A tower mid-upgrade: the current tower dimmed, and a hologram of the next level
+   * materializing from the bottom up behind a scan beam, inside HUD corner brackets, with a
+   * progress ring, rising data bits, and "LV 2 ▲ 3.2s".
+   */
+  private drawUpgrading(t: Tower, time: number): void {
+    const ctx = this.ctx;
+    const color = ELEMENTS[t.element].color;
+    const cx = t.x * TILE;
+    const cy = t.y * TILE;
+    const x = t.col * TILE;
+    const y = t.row * TILE;
+    const progress = 1 - t.upgradeTime / Math.max(1e-6, t.upgradeTotal);
+    ctx.save();
+    ctx.globalAlpha = 0.4;
+    drawTower(ctx, cx, cy, TILE, t.element, t.weapon, t.angle, 0, t.level, time);
+    // The next level, built up to the scan line.
+    const front = y + TILE + 4 - progress * (TILE + 8);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x - 8, front, TILE + 16, y + TILE + 8 - front);
+    ctx.clip();
+    ctx.globalAlpha = 0.55 + 0.15 * Math.sin(time * 14);
+    ctx.globalCompositeOperation = 'lighter';
+    drawTower(ctx, cx, cy, TILE, t.element, t.weapon, t.angle, 0, t.level + 1, time);
+    ctx.restore();
+    // Scan beam at the build front, with a glow band under it.
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'lighter';
+    const band = ctx.createLinearGradient(0, front, 0, front + 10);
+    band.addColorStop(0, `${color}88`);
+    band.addColorStop(1, `${color}00`);
+    ctx.fillStyle = band;
+    ctx.fillRect(x + 1, front, TILE - 2, 10);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x + 1, front - 0.5, TILE - 2, 1);
+    // Rising data bits
+    for (let k = 0; k < 6; k++) {
+      const rise = (time * 0.9 + k * 0.37) % 1;
+      ctx.globalAlpha = 1 - rise;
+      ctx.fillStyle = k % 2 ? color : '#ffffff';
+      ctx.fillRect(x + 5 + ((k * 7) % (TILE - 10)), y + TILE - 4 - rise * (TILE + 6), 2, 2);
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    // HUD corner brackets, breathing in and out
+    const o = 1.5 + Math.sin(time * 6) * 1.5;
+    const l = 7;
+    ctx.beginPath();
+    for (const [sx, sy] of [[0, 0], [1, 0], [0, 1], [1, 1]] as const) {
+      const bx = x + (sx ? TILE + o : -o);
+      const by = y + (sy ? TILE + o : -o);
+      const dx = sx ? -1 : 1;
+      const dy = sy ? -1 : 1;
+      ctx.moveTo(bx + dx * l, by);
+      ctx.lineTo(bx, by);
+      ctx.lineTo(bx, by + dy * l);
+    }
+    neonStroke(ctx, color, 1.2);
+    // Progress ring from 12 o'clock, over a dashed track
+    const r = TILE * 0.58;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.setLineDash([2, 3]);
+    ctx.strokeStyle = `${color}55`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
+    neonStroke(ctx, color, 2);
+    glowDot(ctx, cx + Math.cos(-Math.PI / 2 + progress * Math.PI * 2) * r, cy + Math.sin(-Math.PI / 2 + progress * Math.PI * 2) * r, 4, '#ffffff', color);
+    // Label on a dark tag: next level and seconds left
+    const label = `${tr('LV')} ${t.level + 1} ▲ ${t.upgradeTime.toFixed(1)}s`;
+    ctx.font = canvasFont('mono', 9);
+    ctx.textAlign = 'center';
+    const w = ctx.measureText(label).width + 8;
+    ctx.fillStyle = 'rgba(5,8,20,0.85)';
+    roundRect(ctx, cx - w / 2, y + TILE + 2, w, 12, 3);
+    ctx.fill();
+    ctx.strokeStyle = `${color}aa`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(label, cx, y + TILE + 11);
+    ctx.restore();
+  }
+
   private drawOffline(t: Tower, time: number): void {
     const ctx = this.ctx;
     const x = t.col * TILE;
@@ -1278,7 +1367,7 @@ export class Renderer {
     const cy = hover.row + 0.5;
     this.drawRange(cx, cy, towerStats(buildChoice).range, `rgba(${rgb},0.08)`, `rgba(${rgb},0.75)`);
     ctx.globalAlpha = ok ? 0.8 : 0.35;
-    drawTower(ctx, cx * TILE, cy * TILE, TILE, buildChoice.element, buildChoice.weapon, -Math.PI / 2);
+    drawTower(ctx, cx * TILE, cy * TILE, TILE, buildChoice.element, buildChoice.weapon, -Math.PI / 2, 0, 1, game.time);
     ctx.globalAlpha = 1;
     if (!ok) {
       ctx.fillStyle = `rgba(${rgb},0.3)`;
